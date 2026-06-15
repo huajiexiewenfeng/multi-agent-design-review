@@ -14,6 +14,15 @@
 
 The spec covers one cohesive MVP: a local workbench with backend workflow, runner abstraction, and frontend views. It has several subsystems, but each is required to run the core workflow end-to-end, so this plan keeps them in one implementation sequence with frequent commits.
 
+## Implementation Phases
+
+This plan is split into two phases:
+
+- **Phase 0: Walking Skeleton** (`Task 1` through `Task 9`) creates the project structure, basic services, runner contract, LangGraph shell, API shell, frontend shell, and finalization utility.
+- **Phase 1: Real MVP Flow** (`Task 10` through `Task 17`) turns the shell into the actual workflow described by the design spec: inbox import, versioned authoritative outputs, full state projection, prompt injection, LangGraph stage nodes, API completion, frontend interaction, and a real end-to-end flow test.
+
+The MVP is not complete after Phase 0. Completion requires Phase 1.
+
 ## File Structure
 
 Create these top-level files:
@@ -1373,7 +1382,7 @@ git commit -m "feat: add finalization outputs"
 
 ---
 
-## Task 9: End-to-End Verification and Documentation
+## Task 9: Phase 0 Smoke Verification and Documentation
 
 **Files:**
 - Modify: `README.md`
@@ -1390,7 +1399,7 @@ from backend.app.services.finalize_service import finalize_run
 from backend.app.services.run_service import create_run
 
 
-def test_minimal_mvp_flow_with_mock_outputs(tmp_path: Path) -> None:
+def test_phase0_smoke_flow_with_manual_synthesis_files(tmp_path: Path) -> None:
     projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild MVP")
     run_dir = tmp_path / projection.run_id
     synth_dir = run_dir / "agents" / "synthesizer"
@@ -1481,7 +1490,1414 @@ Expected: PASS.
 
 ```bash
 git add README.md backend/tests/test_mvp_flow.py
-git commit -m "test: add MVP flow verification"
+git commit -m "test: add phase 0 smoke verification"
+```
+
+---
+
+## Task 10: Inbox Import Pipeline and Versioned Submissions
+
+**Files:**
+- Create: `backend/app/services/workflow_service.py`
+- Modify: `backend/app/services/validation_service.py`
+- Modify: `backend/app/services/state_service.py`
+- Test: `backend/tests/test_workflow_import.py`
+
+- [ ] **Step 1: Write failing import tests**
+
+Create `backend/tests/test_workflow_import.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import Stage
+from backend.app.services.workflow_service import import_from_inbox
+
+
+def _make_run(run_dir: Path) -> None:
+    (run_dir / "agents" / "architect").mkdir(parents=True)
+    (run_dir / "inbox" / "architect").mkdir(parents=True)
+    (run_dir / "events.jsonl").write_text("", encoding="utf-8")
+    (run_dir / "run.json").write_text("{}", encoding="utf-8")
+
+
+def test_import_from_inbox_creates_versioned_authoritative_file(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_001"
+    _make_run(run_dir)
+    (run_dir / "inbox" / "architect" / "draft.md").write_text(
+        "## Summary\nA\n\n## Proposed Design\nB\n\n## Modules\nC\n\n## Data Flow\nD\n\n## Risks\nE\n\n## Open Questions\nF\n",
+        encoding="utf-8",
+    )
+
+    imported = import_from_inbox(run_dir, "architect", Stage.DRAFT_DESIGN)
+
+    assert imported == run_dir / "agents" / "architect" / "draft_response.v1.md"
+    assert imported.read_text(encoding="utf-8").startswith("## Summary")
+    assert "file_imported" in (run_dir / "events.jsonl").read_text(encoding="utf-8")
+
+
+def test_second_import_creates_new_version_and_superseded_event(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_002"
+    _make_run(run_dir)
+    inbox_file = run_dir / "inbox" / "architect" / "draft.md"
+    inbox_file.write_text(
+        "## Summary\nA\n\n## Proposed Design\nB\n\n## Modules\nC\n\n## Data Flow\nD\n\n## Risks\nE\n\n## Open Questions\nF\n",
+        encoding="utf-8",
+    )
+    import_from_inbox(run_dir, "architect", Stage.DRAFT_DESIGN)
+    inbox_file.write_text(
+        "## Summary\nA2\n\n## Proposed Design\nB2\n\n## Modules\nC2\n\n## Data Flow\nD2\n\n## Risks\nE2\n\n## Open Questions\nF2\n",
+        encoding="utf-8",
+    )
+
+    imported = import_from_inbox(run_dir, "architect", Stage.DRAFT_DESIGN)
+
+    assert imported.name == "draft_response.v2.md"
+    events = (run_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert "submission_superseded" in events
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run:
+
+```bash
+pytest backend/tests/test_workflow_import.py -q
+```
+
+Expected: FAIL because `workflow_service.import_from_inbox` does not exist.
+
+- [ ] **Step 3: Extend validation service**
+
+Modify `backend/app/services/validation_service.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import Stage
+
+
+REQUIRED_HEADINGS: dict[Stage, list[str]] = {
+    Stage.CLARIFICATION: ["## Clarification Questions", "## Assumptions"],
+    Stage.DRAFT_DESIGN: ["## Summary", "## Proposed Design", "## Modules", "## Data Flow", "## Risks", "## Open Questions"],
+    Stage.CROSS_REVIEW: ["## Review Summary", "## Issues", "## Conflicts", "## Suggestions", "## Questions For Human"],
+    Stage.REVISION: ["## Revised Design", "## Changes Made", "## Remaining Risks", "## Implementation Notes"],
+}
+
+
+def has_required_headings(path: Path, headings: list[str]) -> bool:
+    if not path.is_file():
+        return False
+    content = path.read_text(encoding="utf-8")
+    return all(heading in content for heading in headings)
+
+
+def validate_stage_output(path: Path, stage: Stage) -> list[str]:
+    if not path.is_file():
+        return [f"Missing file: {path.name}"]
+    if path.read_text(encoding="utf-8").strip() == "":
+        return [f"Empty file: {path.name}"]
+    missing = [heading for heading in REQUIRED_HEADINGS.get(stage, []) if heading not in path.read_text(encoding="utf-8")]
+    return [f"Missing heading: {heading}" for heading in missing]
+```
+
+- [ ] **Step 4: Implement workflow import service**
+
+Create `backend/app/services/workflow_service.py`:
+
+```python
+from pathlib import Path
+import re
+
+from backend.app.models import ActorType, Stage
+from backend.app.services.event_service import append_event
+from backend.app.services.file_service import run_lock, write_json
+from backend.app.services.state_service import recompute_state
+from backend.app.services.validation_service import validate_stage_output
+
+ARTIFACT_BY_STAGE: dict[Stage, str] = {
+    Stage.CLARIFICATION: "clarification_questions",
+    Stage.DRAFT_DESIGN: "draft_response",
+    Stage.CROSS_REVIEW: "review_response",
+    Stage.REVISION: "revision_response",
+}
+
+
+def _next_version(agent_dir: Path, artifact: str) -> int:
+    versions: list[int] = []
+    pattern = re.compile(rf"^{re.escape(artifact)}\.v(\d+)\.md$")
+    for path in agent_dir.glob(f"{artifact}.v*.md"):
+        match = pattern.match(path.name)
+        if match:
+            versions.append(int(match.group(1)))
+    return max(versions, default=0) + 1
+
+
+def _first_inbox_markdown(run_dir: Path, agent_id: str) -> Path:
+    inbox_dir = run_dir / "inbox" / agent_id
+    files = sorted(inbox_dir.glob("*.md"))
+    if not files:
+        raise FileNotFoundError(f"No markdown files found in {inbox_dir}")
+    return files[0]
+
+
+def import_from_inbox(run_dir: Path, agent_id: str, stage: Stage) -> Path:
+    artifact = ARTIFACT_BY_STAGE[stage]
+    with run_lock(run_dir):
+        source = _first_inbox_markdown(run_dir, agent_id)
+        errors = validate_stage_output(source, stage)
+        if errors:
+            append_event(run_dir, stage, agent_id, ActorType.AGENT, "validation_failed", "; ".join(errors), str(source.relative_to(run_dir)))
+            raise ValueError("; ".join(errors))
+
+        agent_dir = run_dir / "agents" / agent_id
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        version = _next_version(agent_dir, artifact)
+        target = agent_dir / f"{artifact}.v{version}.md"
+        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+        if version > 1:
+            append_event(
+                run_dir,
+                stage,
+                agent_id,
+                ActorType.AGENT,
+                "submission_superseded",
+                f"{artifact}.v{version - 1}.md superseded by {target.name}",
+                str(target.relative_to(run_dir)),
+            )
+        append_event(run_dir, stage, agent_id, ActorType.AGENT, "file_imported", f"Imported {target.name}", str(target.relative_to(run_dir)))
+        projection = recompute_state(run_dir)
+        write_json(run_dir / "run.json", projection.model_dump(mode="json"))
+        return target
+```
+
+- [ ] **Step 5: Run import tests**
+
+Run:
+
+```bash
+pytest backend/tests/test_workflow_import.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend/app/services/workflow_service.py backend/app/services/validation_service.py backend/tests/test_workflow_import.py
+git commit -m "feat: add inbox import pipeline"
+```
+
+---
+
+## Task 11: Full-Stage State Projection
+
+**Files:**
+- Modify: `backend/app/services/event_service.py`
+- Modify: `backend/app/services/state_service.py`
+- Test: `backend/tests/test_state_full_flow.py`
+
+- [ ] **Step 1: Write failing full-state tests**
+
+Create `backend/tests/test_state_full_flow.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import Stage, StageStatus
+from backend.app.services.state_service import recompute_state
+
+
+def test_state_moves_to_draft_after_clarified_requirement_ready(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_001"
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "agents" / "architect").mkdir(parents=True)
+    (run_dir / "agents" / "engineer").mkdir(parents=True)
+    (run_dir / "agents" / "reviewer").mkdir(parents=True)
+    (run_dir / "input" / "requirement.md").write_text("# Requirement\n", encoding="utf-8")
+    (run_dir / "agents" / "architect" / "clarification_questions.v1.md").write_text("## Clarification Questions\n\n## Assumptions\n", encoding="utf-8")
+    (run_dir / "agents" / "engineer" / "clarification_questions.v1.md").write_text("## Clarification Questions\n\n## Assumptions\n", encoding="utf-8")
+    (run_dir / "agents" / "reviewer" / "clarification_questions.v1.md").write_text("## Clarification Questions\n\n## Assumptions\n", encoding="utf-8")
+    (run_dir / "input" / "clarification_questions.json").write_text('{"questions":[{"id":"q_001","required":true}]}', encoding="utf-8")
+    (run_dir / "input" / "human_answers.json").write_text('{"answers":{"q_001":"Local user"}}', encoding="utf-8")
+    (run_dir / "input" / "clarified_requirement.md").write_text("# Clarified\n", encoding="utf-8")
+    (run_dir / "events.jsonl").write_text("", encoding="utf-8")
+
+    projection = recompute_state(run_dir)
+
+    assert projection.stage == Stage.DRAFT_DESIGN
+    assert projection.status == StageStatus.WAITING_INPUT
+    assert "agents/architect/draft_response.v*.md" in projection.missing_inputs
+
+
+def test_skip_event_unblocks_missing_reviewer(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_002"
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "agents" / "architect").mkdir(parents=True)
+    (run_dir / "agents" / "engineer").mkdir(parents=True)
+    (run_dir / "agents" / "reviewer").mkdir(parents=True)
+    (run_dir / "input" / "requirement.md").write_text("# Requirement\n", encoding="utf-8")
+    (run_dir / "agents" / "architect" / "clarification_questions.v1.md").write_text("## Clarification Questions\n\n## Assumptions\n", encoding="utf-8")
+    (run_dir / "agents" / "engineer" / "clarification_questions.v1.md").write_text("## Clarification Questions\n\n## Assumptions\n", encoding="utf-8")
+    (run_dir / "events.jsonl").write_text(
+        '{"event_type":"agent_skipped","stage":"clarification","actor":"reviewer"}\n',
+        encoding="utf-8",
+    )
+
+    projection = recompute_state(run_dir)
+
+    assert projection.stage == Stage.CLARIFIED_REQUIREMENT
+    assert "agents/reviewer/clarification_questions.v*.md" not in projection.missing_inputs
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run:
+
+```bash
+pytest backend/tests/test_state_full_flow.py -q
+```
+
+Expected: FAIL because `recompute_state` only handles Requirement.
+
+- [ ] **Step 3: Add event reading helper**
+
+Modify `backend/app/services/event_service.py`:
+
+```python
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
+import json
+
+from backend.app.models import ActorType, Stage
+
+
+def append_event(
+    run_dir: Path,
+    stage: Stage,
+    actor: str,
+    actor_type: ActorType,
+    event_type: str,
+    message: str,
+    related_file: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    event = {
+        "id": f"evt_{uuid4().hex[:12]}",
+        "run_id": run_dir.name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "stage": stage.value,
+        "actor": actor,
+        "actor_type": actor_type.value,
+        "event_type": event_type,
+        "message": message,
+        "related_file": related_file,
+        "visibility": None,
+        "metadata": metadata or {},
+    }
+    with (run_dir / "events.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def read_events(run_dir: Path) -> list[dict[str, object]]:
+    events_file = run_dir / "events.jsonl"
+    if not events_file.is_file():
+        return []
+    events: list[dict[str, object]] = []
+    for raw in events_file.read_text(encoding="utf-8").splitlines():
+        if raw.strip():
+            events.append(json.loads(raw))
+    return events
+```
+
+- [ ] **Step 4: Implement full-stage recompute**
+
+Modify `backend/app/services/state_service.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import RunProjection, Stage, StageStatus
+from backend.app.services.event_service import read_events
+
+
+def _is_non_empty_file(path: Path) -> bool:
+    return path.is_file() and path.read_text(encoding="utf-8").strip() != ""
+
+
+def _has_version(run_dir: Path, pattern: str) -> bool:
+    return bool(list(run_dir.glob(pattern)))
+
+
+def _skipped(events: list[dict[str, object]], stage: Stage, agent: str) -> bool:
+    return any(event.get("event_type") == "agent_skipped" and event.get("stage") == stage.value and event.get("actor") == agent for event in events)
+
+
+def _missing_agent_versions(run_dir: Path, events: list[dict[str, object]], stage: Stage, agents: list[str], artifact: str) -> list[str]:
+    missing: list[str] = []
+    for agent in agents:
+        if _skipped(events, stage, agent):
+            continue
+        pattern = f"agents/{agent}/{artifact}.v*.md"
+        if not _has_version(run_dir, pattern):
+            missing.append(pattern)
+    return missing
+
+
+def _required_answers_ready(run_dir: Path) -> bool:
+    questions = run_dir / "input" / "clarification_questions.json"
+    answers = run_dir / "input" / "human_answers.json"
+    return _is_non_empty_file(questions) and _is_non_empty_file(answers)
+
+
+def _projection(run_dir: Path, stage: Stage, missing: list[str]) -> RunProjection:
+    return RunProjection(
+        run_id=run_dir.name,
+        stage=stage,
+        status=StageStatus.READY_TO_ADVANCE if not missing else StageStatus.WAITING_INPUT,
+        missing_inputs=missing,
+    )
+
+
+def recompute_state(run_dir: Path) -> RunProjection:
+    events = read_events(run_dir)
+    if not _is_non_empty_file(run_dir / "input" / "requirement.md"):
+        return _projection(run_dir, Stage.REQUIREMENT, ["input/requirement.md"])
+
+    missing = _missing_agent_versions(run_dir, events, Stage.CLARIFICATION, ["architect", "engineer", "reviewer"], "clarification_questions")
+    if missing:
+        return _projection(run_dir, Stage.CLARIFICATION, missing)
+
+    clarified_missing = []
+    if not _required_answers_ready(run_dir):
+        clarified_missing.extend(["input/clarification_questions.json", "input/human_answers.json"])
+    if not _is_non_empty_file(run_dir / "input" / "clarified_requirement.md"):
+        clarified_missing.append("input/clarified_requirement.md")
+    if clarified_missing:
+        return _projection(run_dir, Stage.CLARIFIED_REQUIREMENT, clarified_missing)
+
+    missing = _missing_agent_versions(run_dir, events, Stage.DRAFT_DESIGN, ["architect", "engineer"], "draft_response")
+    if missing:
+        return _projection(run_dir, Stage.DRAFT_DESIGN, missing)
+
+    missing = _missing_agent_versions(run_dir, events, Stage.CROSS_REVIEW, ["architect", "engineer", "reviewer"], "review_response")
+    if missing:
+        return _projection(run_dir, Stage.CROSS_REVIEW, missing)
+
+    missing = _missing_agent_versions(run_dir, events, Stage.REVISION, ["architect", "engineer"], "revision_response")
+    if missing:
+        return _projection(run_dir, Stage.REVISION, missing)
+
+    synthesis_missing = []
+    if not _has_version(run_dir, "agents/synthesizer/design_doc.v*.md"):
+        synthesis_missing.append("agents/synthesizer/design_doc.v*.md")
+    if not _has_version(run_dir, "agents/synthesizer/execution_doc.v*.md"):
+        synthesis_missing.append("agents/synthesizer/execution_doc.v*.md")
+    return _projection(run_dir, Stage.SYNTHESIS, synthesis_missing)
+```
+
+- [ ] **Step 5: Run full state tests**
+
+Run:
+
+```bash
+pytest backend/tests/test_state_full_flow.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend/app/services/event_service.py backend/app/services/state_service.py backend/tests/test_state_full_flow.py
+git commit -m "feat: add full workflow state projection"
+```
+
+---
+
+## Task 12: Prompt Templates and Stage Injection
+
+**Files:**
+- Modify: `backend/app/services/prompt_service.py`
+- Create: `backend/app/templates/prompts/clarification.md`
+- Create: `backend/app/templates/prompts/draft.md`
+- Create: `backend/app/templates/prompts/review.md`
+- Create: `backend/app/templates/prompts/revision.md`
+- Create: `backend/app/templates/prompts/synthesis.md`
+- Test: `backend/tests/test_prompt_service.py`
+
+- [ ] **Step 1: Write failing prompt injection tests**
+
+Create `backend/tests/test_prompt_service.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import Stage
+from backend.app.services.prompt_service import render_prompt
+
+
+def test_draft_prompt_does_not_include_other_agent_draft(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_001"
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "agents" / "engineer").mkdir(parents=True)
+    (run_dir / "input" / "requirement.md").write_text("Original requirement", encoding="utf-8")
+    (run_dir / "input" / "human_answers.md").write_text("Human answer", encoding="utf-8")
+    (run_dir / "input" / "clarified_requirement.md").write_text("Clarified requirement", encoding="utf-8")
+    (run_dir / "agents" / "engineer" / "draft_response.v1.md").write_text("Engineer draft should not appear", encoding="utf-8")
+
+    prompt = render_prompt(Stage.DRAFT_DESIGN, "architect", run_dir)
+
+    assert "Original requirement" in prompt
+    assert "Human answer" in prompt
+    assert "Clarified requirement" in prompt
+    assert "Engineer draft should not appear" not in prompt
+
+
+def test_review_prompt_includes_all_drafts(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_002"
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "agents" / "architect").mkdir(parents=True)
+    (run_dir / "agents" / "engineer").mkdir(parents=True)
+    (run_dir / "input" / "clarified_requirement.md").write_text("Clarified", encoding="utf-8")
+    (run_dir / "agents" / "architect" / "draft_response.v1.md").write_text("Architect draft", encoding="utf-8")
+    (run_dir / "agents" / "engineer" / "draft_response.v1.md").write_text("Engineer draft", encoding="utf-8")
+
+    prompt = render_prompt(Stage.CROSS_REVIEW, "reviewer", run_dir)
+
+    assert "Architect draft" in prompt
+    assert "Engineer draft" in prompt
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run:
+
+```bash
+pytest backend/tests/test_prompt_service.py -q
+```
+
+Expected: FAIL because `render_prompt` is not implemented.
+
+- [ ] **Step 3: Create prompt templates**
+
+Create `backend/app/templates/prompts/clarification.md`:
+
+```markdown
+# Clarification Prompt
+
+Role: {agent_id}
+
+## Requirement
+
+{requirement}
+
+Return:
+
+## Clarification Questions
+
+## Assumptions
+```
+
+Create `backend/app/templates/prompts/draft.md`:
+
+```markdown
+# Draft Prompt
+
+Role: {agent_id}
+
+## Original Requirement
+
+{requirement}
+
+## Human Answers
+
+{human_answers}
+
+## Clarified Requirement
+
+{clarified_requirement}
+
+Return:
+
+## Summary
+## Proposed Design
+## Modules
+## Data Flow
+## Risks
+## Open Questions
+```
+
+Create `backend/app/templates/prompts/review.md`:
+
+```markdown
+# Review Prompt
+
+Role: {agent_id}
+
+## Clarified Requirement
+
+{clarified_requirement}
+
+## Drafts
+
+{drafts}
+
+Return:
+
+## Review Summary
+## Issues
+## Conflicts
+## Suggestions
+## Questions For Human
+```
+
+Create `backend/app/templates/prompts/revision.md`:
+
+```markdown
+# Revision Prompt
+
+Role: {agent_id}
+
+## Own Draft
+
+{own_draft}
+
+## Reviews
+
+{reviews}
+
+## Human Notes
+
+{human_notes}
+
+Return:
+
+## Revised Design
+## Changes Made
+## Remaining Risks
+## Implementation Notes
+```
+
+Create `backend/app/templates/prompts/synthesis.md`:
+
+```markdown
+# Synthesis Prompt
+
+## Clarified Requirement
+
+{clarified_requirement}
+
+## Drafts
+
+{drafts}
+
+## Reviews
+
+{reviews}
+
+## Revisions
+
+{revisions}
+
+## Human Notes
+
+{human_notes}
+
+Produce two documents: Design Document and Execution Document.
+```
+
+- [ ] **Step 4: Implement prompt rendering**
+
+Modify `backend/app/services/prompt_service.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import Stage
+
+TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "templates" / "prompts"
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def _latest_text(run_dir: Path, pattern: str) -> str:
+    files = sorted(run_dir.glob(pattern))
+    return files[-1].read_text(encoding="utf-8") if files else ""
+
+
+def _all_text(run_dir: Path, pattern: str) -> str:
+    return "\n\n".join(path.read_text(encoding="utf-8") for path in sorted(run_dir.glob(pattern)))
+
+
+def _template(name: str) -> str:
+    return (TEMPLATE_DIR / name).read_text(encoding="utf-8")
+
+
+def write_prompt(path: Path, title: str, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"# {title}\n\n{body.strip()}\n", encoding="utf-8")
+
+
+def render_prompt(stage: Stage, agent_id: str, run_dir: Path) -> str:
+    requirement = _read(run_dir / "input" / "requirement.md")
+    human_answers = _read(run_dir / "input" / "human_answers.md")
+    clarified_requirement = _read(run_dir / "input" / "clarified_requirement.md")
+    human_notes = "\n\n".join([_read(run_dir / "human" / "comments.md"), _read(run_dir / "human" / "decisions.md")])
+
+    if stage == Stage.CLARIFICATION:
+        return _template("clarification.md").format(agent_id=agent_id, requirement=requirement)
+    if stage == Stage.DRAFT_DESIGN:
+        return _template("draft.md").format(
+            agent_id=agent_id,
+            requirement=requirement,
+            human_answers=human_answers,
+            clarified_requirement=clarified_requirement,
+        )
+    if stage == Stage.CROSS_REVIEW:
+        return _template("review.md").format(
+            agent_id=agent_id,
+            clarified_requirement=clarified_requirement,
+            drafts=_all_text(run_dir, "agents/*/draft_response.v*.md"),
+        )
+    if stage == Stage.REVISION:
+        return _template("revision.md").format(
+            agent_id=agent_id,
+            own_draft=_latest_text(run_dir, f"agents/{agent_id}/draft_response.v*.md"),
+            reviews=_all_text(run_dir, "agents/*/review_response.v*.md"),
+            human_notes=human_notes,
+        )
+    if stage == Stage.SYNTHESIS:
+        return _template("synthesis.md").format(
+            clarified_requirement=clarified_requirement,
+            drafts=_all_text(run_dir, "agents/*/draft_response.v*.md"),
+            reviews=_all_text(run_dir, "agents/*/review_response.v*.md"),
+            revisions=_all_text(run_dir, "agents/*/revision_response.v*.md"),
+            human_notes=human_notes,
+        )
+    raise ValueError(f"Unsupported prompt stage: {stage}")
+```
+
+- [ ] **Step 5: Run prompt tests**
+
+Run:
+
+```bash
+pytest backend/tests/test_prompt_service.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend/app/services/prompt_service.py backend/app/templates/prompts backend/tests/test_prompt_service.py
+git commit -m "feat: add stage prompt rendering"
+```
+
+---
+
+## Task 13: LangGraph Stage Nodes and Checkpoint Flow
+
+**Files:**
+- Modify: `backend/app/graph/state.py`
+- Modify: `backend/app/graph/nodes.py`
+- Modify: `backend/app/graph/edges.py`
+- Modify: `backend/app/services/runner_service.py`
+- Test: `backend/tests/test_graph_stage_flow.py`
+
+- [ ] **Step 1: Write failing graph stage test**
+
+Create `backend/tests/test_graph_stage_flow.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.graph.edges import build_workflow
+from backend.app.services.run_service import create_run
+
+
+def test_graph_runs_clarification_with_mock_runner(tmp_path: Path) -> None:
+    projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild")
+    graph = build_workflow()
+
+    result = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": True})
+
+    run_dir = tmp_path / projection.run_id
+    assert result["stage"] in {"clarification", "clarified_requirement"}
+    assert (run_dir / "agents" / "architect" / "clarification_questions.v1.md").is_file()
+    assert "file_imported" in (run_dir / "events.jsonl").read_text(encoding="utf-8")
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+pytest backend/tests/test_graph_stage_flow.py -q
+```
+
+Expected: FAIL because graph nodes do not call runners or import inbox.
+
+- [ ] **Step 3: Extend graph state**
+
+Modify `backend/app/graph/state.py`:
+
+```python
+from typing import TypedDict
+
+
+class WorkflowState(TypedDict, total=False):
+    run_id: str
+    runs_root: str
+    stage: str
+    confirmed: bool
+```
+
+- [ ] **Step 4: Add runner invocation helper**
+
+Modify `backend/app/services/runner_service.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import Stage
+from backend.app.runners.file import FileRunner
+from backend.app.runners.manual import ManualRunner
+from backend.app.runners.mock import MockRunner
+from backend.app.services.prompt_service import render_prompt
+from backend.app.services.workflow_service import import_from_inbox
+
+
+def get_runner(name: str):
+    runners = {
+        "manual": ManualRunner(),
+        "file": FileRunner(),
+        "mock": MockRunner(),
+    }
+    if name not in runners:
+        raise ValueError(f"Unsupported runner: {name}")
+    return runners[name]
+
+
+def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str = "mock") -> None:
+    prompt_name = {
+        Stage.CLARIFICATION: "clarification_prompt.md",
+        Stage.DRAFT_DESIGN: "draft_prompt.md",
+        Stage.CROSS_REVIEW: "review_prompt.md",
+        Stage.REVISION: "revision_prompt.md",
+        Stage.SYNTHESIS: "synthesis_prompt.md",
+    }[stage]
+    prompt_file = run_dir / "agents" / agent_id / prompt_name
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(render_prompt(stage, agent_id, run_dir), encoding="utf-8")
+    runner = get_runner(runner_name)
+    result = runner.run(
+        run_id=run_dir.name,
+        agent_id=agent_id,
+        stage=stage.value,
+        prompt_file=prompt_file,
+        inbox_dir=run_dir / "inbox" / agent_id,
+        runner_log_dir=run_dir / "runner_logs" / agent_id,
+        timeout_seconds=30,
+        metadata={},
+    )
+    if result.status == "succeeded":
+        import_from_inbox(run_dir, agent_id, stage)
+```
+
+- [ ] **Step 5: Implement clarification graph node**
+
+Modify `backend/app/graph/nodes.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.graph.state import WorkflowState
+from backend.app.models import Stage
+from backend.app.services.runner_service import run_agent_stage
+from backend.app.services.state_service import recompute_state
+
+
+def load_projection_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    projection = recompute_state(run_dir)
+    return {**state, "stage": projection.stage.value}
+
+
+def clarification_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    for agent in ["architect", "engineer", "reviewer"]:
+        if not list((run_dir / "agents" / agent).glob("clarification_questions.v*.md")):
+            run_agent_stage(run_dir, agent, Stage.CLARIFICATION)
+    projection = recompute_state(run_dir)
+    return {**state, "stage": projection.stage.value}
+```
+
+- [ ] **Step 6: Wire graph through clarification**
+
+Modify `backend/app/graph/edges.py`:
+
+```python
+from langgraph.graph import END, StateGraph
+
+from backend.app.graph.nodes import clarification_node, load_projection_node
+from backend.app.graph.state import WorkflowState
+
+
+def build_workflow():
+    graph = StateGraph(WorkflowState)
+    graph.add_node("load_projection", load_projection_node)
+    graph.add_node("clarification", clarification_node)
+    graph.set_entry_point("load_projection")
+    graph.add_edge("load_projection", "clarification")
+    graph.add_edge("clarification", END)
+    return graph.compile()
+```
+
+- [ ] **Step 7: Run graph stage test**
+
+Run:
+
+```bash
+pytest backend/tests/test_graph_stage_flow.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add backend/app/graph backend/app/services/runner_service.py backend/tests/test_graph_stage_flow.py
+git commit -m "feat: connect LangGraph to runner import flow"
+```
+
+---
+
+## Task 14: Clarification Question Merge
+
+**Files:**
+- Create: `backend/app/services/clarification_service.py`
+- Test: `backend/tests/test_clarification_service.py`
+
+- [ ] **Step 1: Write failing merge test**
+
+Create `backend/tests/test_clarification_service.py`:
+
+```python
+from pathlib import Path
+import json
+
+from backend.app.services.clarification_service import merge_clarification_questions
+
+
+def test_merge_clarification_questions_writes_json_and_markdown(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_001"
+    for agent in ["architect", "engineer"]:
+        (run_dir / "agents" / agent).mkdir(parents=True)
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "agents" / "architect" / "clarification_questions.v1.md").write_text(
+        "## Clarification Questions\n\n1. [required] Who is the user?\n\n## Assumptions\n",
+        encoding="utf-8",
+    )
+    (run_dir / "agents" / "engineer" / "clarification_questions.v1.md").write_text(
+        "## Clarification Questions\n\n1. What platform must run first?\n\n## Assumptions\n",
+        encoding="utf-8",
+    )
+
+    merge_clarification_questions(run_dir)
+
+    data = json.loads((run_dir / "input" / "clarification_questions.json").read_text(encoding="utf-8"))
+    assert len(data["questions"]) == 2
+    assert data["questions"][0]["required"] is True
+    assert "Who is the user?" in (run_dir / "input" / "clarification_questions.md").read_text(encoding="utf-8")
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+pytest backend/tests/test_clarification_service.py -q
+```
+
+Expected: FAIL because `clarification_service` does not exist.
+
+- [ ] **Step 3: Implement simple merge**
+
+Create `backend/app/services/clarification_service.py`:
+
+```python
+from pathlib import Path
+import json
+import re
+
+
+def _extract_questions(content: str) -> list[str]:
+    questions: list[str] = []
+    for line in content.splitlines():
+        match = re.match(r"^\s*\d+\.\s*(.+)$", line)
+        if match:
+            questions.append(match.group(1).strip())
+    return questions
+
+
+def merge_clarification_questions(run_dir: Path) -> None:
+    merged: list[dict[str, object]] = []
+    counter = 1
+    for path in sorted(run_dir.glob("agents/*/clarification_questions.v*.md")):
+        agent = path.parts[-2]
+        for question in _extract_questions(path.read_text(encoding="utf-8")):
+            required = "[required]" in question.lower()
+            clean = question.replace("[required]", "").strip()
+            merged.append(
+                {
+                    "id": f"q_{counter:03d}",
+                    "text": clean,
+                    "source_agents": [agent],
+                    "required": required,
+                    "merged_from": [f"{agent}:q{counter}"],
+                }
+            )
+            counter += 1
+    input_dir = run_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    (input_dir / "clarification_questions.json").write_text(json.dumps({"questions": merged}, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown = ["# Clarification Questions", ""]
+    for item in merged:
+        marker = "required" if item["required"] else "optional"
+        markdown.append(f"- `{item['id']}` ({marker}) {item['text']}")
+    markdown.append("")
+    (input_dir / "clarification_questions.md").write_text("\n".join(markdown), encoding="utf-8")
+```
+
+- [ ] **Step 4: Run merge test**
+
+Run:
+
+```bash
+pytest backend/tests/test_clarification_service.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/services/clarification_service.py backend/tests/test_clarification_service.py
+git commit -m "feat: add clarification question merge"
+```
+
+---
+
+## Task 15: Complete Run API
+
+**Files:**
+- Modify: `backend/app/api.py`
+- Modify: `backend/app/services/run_service.py`
+- Test: `backend/tests/test_api_workflow.py`
+
+- [ ] **Step 1: Write failing workflow API tests**
+
+Create `backend/tests/test_api_workflow.py`:
+
+```python
+from fastapi.testclient import TestClient
+
+import backend.app.api as api_module
+from backend.app.main import app
+
+
+def test_submit_agent_output_imports_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(
+        f"/api/runs/{created['run_id']}/agents/architect/submit",
+        json={"stage": "draft_design", "content": "## Summary\nA\n\n## Proposed Design\nB\n\n## Modules\nC\n\n## Data Flow\nD\n\n## Risks\nE\n\n## Open Questions\nF\n"},
+    )
+
+    assert response.status_code == 200
+    assert "draft_response.v1.md" in response.json()["related_file"]
+
+
+def test_get_events_returns_event_list(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.get(f"/api/runs/{created['run_id']}/events")
+
+    assert response.status_code == 200
+    assert response.json()[0]["event_type"] == "run_created"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+pytest backend/tests/test_api_workflow.py -q
+```
+
+Expected: FAIL because workflow endpoints do not exist.
+
+- [ ] **Step 3: Add run helpers**
+
+Modify `backend/app/services/run_service.py` by adding:
+
+```python
+import json
+
+
+def list_runs(runs_root: Path) -> list[dict[str, object]]:
+    if not runs_root.exists():
+        return []
+    runs = []
+    for run_json in sorted(runs_root.glob("*/run.json")):
+        runs.append(json.loads(run_json.read_text(encoding="utf-8")))
+    return runs
+
+
+def get_run_dir(runs_root: Path, run_id: str) -> Path:
+    run_dir = runs_root / run_id
+    if not run_dir.is_dir():
+        raise FileNotFoundError(run_id)
+    return run_dir
+```
+
+- [ ] **Step 4: Add API endpoints**
+
+Modify `backend/app/api.py`:
+
+```python
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from backend.app.models import Stage
+from backend.app.services.event_service import read_events
+from backend.app.services.file_service import write_text
+from backend.app.services.run_service import create_run, get_run_dir, list_runs
+from backend.app.services.workflow_service import import_from_inbox
+
+RUNS_ROOT = Path("runs")
+router = APIRouter(prefix="/api")
+
+
+class CreateRunRequest(BaseModel):
+    title: str
+    requirement: str
+
+
+class SubmitAgentOutputRequest(BaseModel):
+    stage: Stage
+    content: str
+
+
+@router.get("/runs")
+def list_runs_endpoint():
+    return list_runs(RUNS_ROOT)
+
+
+@router.post("/runs")
+def create_run_endpoint(request: CreateRunRequest):
+    projection = create_run(RUNS_ROOT, request.title, request.requirement)
+    return projection.model_dump(mode="json")
+
+
+@router.get("/runs/{run_id}/events")
+def get_events_endpoint(run_id: str):
+    try:
+        return read_events(get_run_dir(RUNS_ROOT, run_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+
+@router.post("/runs/{run_id}/agents/{agent_id}/submit")
+def submit_agent_output_endpoint(run_id: str, agent_id: str, request: SubmitAgentOutputRequest):
+    try:
+        run_dir = get_run_dir(RUNS_ROOT, run_id)
+        inbox_file = run_dir / "inbox" / agent_id / f"{request.stage.value}_manual.md"
+        write_text(inbox_file, request.content)
+        imported = import_from_inbox(run_dir, agent_id, request.stage)
+        return {"related_file": str(imported.relative_to(run_dir))}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found")
+```
+
+- [ ] **Step 5: Run workflow API tests**
+
+Run:
+
+```bash
+pytest backend/tests/test_api_workflow.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend/app/api.py backend/app/services/run_service.py backend/tests/test_api_workflow.py
+git commit -m "feat: add workflow API endpoints"
+```
+
+---
+
+## Task 16: Frontend API Integration
+
+**Files:**
+- Create: `frontend/src/api/client.ts`
+- Create: `frontend/src/types/run.ts`
+- Create: `frontend/src/components/SubmitOutputDialog.tsx`
+- Create: `frontend/src/components/HumanInputPanel.tsx`
+- Modify: `frontend/src/pages/RunListPage.tsx`
+- Modify: `frontend/src/pages/RunDetailPage.tsx`
+- Test: `frontend/src/__tests__/SubmitOutputDialog.test.tsx`
+
+- [ ] **Step 1: Write failing submit dialog test**
+
+Create `frontend/src/__tests__/SubmitOutputDialog.test.tsx`:
+
+```tsx
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { SubmitOutputDialog } from "../components/SubmitOutputDialog";
+
+describe("SubmitOutputDialog", () => {
+  it("submits pasted output", () => {
+    const onSubmit = vi.fn();
+    render(<SubmitOutputDialog agentId="architect" stage="draft_design" onSubmit={onSubmit} />);
+    fireEvent.change(screen.getByLabelText("Agent output"), { target: { value: "## Summary\nA" } });
+    fireEvent.click(screen.getByText("Submit"));
+    expect(onSubmit).toHaveBeenCalledWith("architect", "draft_design", "## Summary\nA");
+  });
+});
+```
+
+- [ ] **Step 2: Run frontend test to verify it fails**
+
+Run:
+
+```bash
+npm --prefix frontend test -- --run
+```
+
+Expected: FAIL because `SubmitOutputDialog` does not exist.
+
+- [ ] **Step 3: Add frontend types and API client**
+
+Create `frontend/src/types/run.ts`:
+
+```ts
+export type RunProjection = {
+  run_id: string;
+  stage: string;
+  status: string;
+  missing_inputs: string[];
+};
+
+export type TimelineEvent = {
+  id: string;
+  actor: string;
+  event_type: string;
+  message: string;
+};
+```
+
+Create `frontend/src/api/client.ts`:
+
+```ts
+import type { RunProjection, TimelineEvent } from "../types/run";
+
+export async function listRuns(): Promise<RunProjection[]> {
+  const response = await fetch("/api/runs");
+  return response.json();
+}
+
+export async function createRun(title: string, requirement: string): Promise<RunProjection> {
+  const response = await fetch("/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, requirement })
+  });
+  return response.json();
+}
+
+export async function getEvents(runId: string): Promise<TimelineEvent[]> {
+  const response = await fetch(`/api/runs/${runId}/events`);
+  return response.json();
+}
+
+export async function submitAgentOutput(runId: string, agentId: string, stage: string, content: string): Promise<{ related_file: string }> {
+  const response = await fetch(`/api/runs/${runId}/agents/${agentId}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stage, content })
+  });
+  return response.json();
+}
+```
+
+- [ ] **Step 4: Add submit dialog**
+
+Create `frontend/src/components/SubmitOutputDialog.tsx`:
+
+```tsx
+import { useState } from "react";
+
+export function SubmitOutputDialog({
+  agentId,
+  stage,
+  onSubmit
+}: {
+  agentId: string;
+  stage: string;
+  onSubmit: (agentId: string, stage: string, content: string) => void;
+}) {
+  const [content, setContent] = useState("");
+  return (
+    <section>
+      <h2>Submit {agentId}</h2>
+      <label>
+        Agent output
+        <textarea value={content} onChange={(event) => setContent(event.target.value)} />
+      </label>
+      <button onClick={() => onSubmit(agentId, stage, content)}>Submit</button>
+    </section>
+  );
+}
+```
+
+Create `frontend/src/components/HumanInputPanel.tsx`:
+
+```tsx
+export function HumanInputPanel() {
+  return (
+    <section aria-label="Human input">
+      <h2>Human Input</h2>
+      <textarea aria-label="Human notes" />
+    </section>
+  );
+}
+```
+
+- [ ] **Step 5: Run frontend tests**
+
+Run:
+
+```bash
+npm --prefix frontend test -- --run
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add frontend/src/api frontend/src/types frontend/src/components frontend/src/pages frontend/src/__tests__/SubmitOutputDialog.test.tsx
+git commit -m "feat: connect frontend submission components"
+```
+
+---
+
+## Task 17: Real MVP End-to-End Flow
+
+**Files:**
+- Replace: `backend/tests/test_mvp_flow.py`
+
+- [ ] **Step 1: Replace smoke test with real MVP flow test**
+
+Replace `backend/tests/test_mvp_flow.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import Stage
+from backend.app.services.finalize_service import finalize_run
+from backend.app.services.run_service import create_run
+from backend.app.services.workflow_service import import_from_inbox
+
+
+def _write_stage_output(run_dir: Path, agent: str, stage: Stage, content: str) -> None:
+    inbox = run_dir / "inbox" / agent
+    inbox.mkdir(parents=True, exist_ok=True)
+    (inbox / f"{stage.value}.md").write_text(content, encoding="utf-8")
+    import_from_inbox(run_dir, agent, stage)
+
+
+def test_real_mvp_flow_through_all_authoritative_outputs(tmp_path: Path) -> None:
+    projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild MVP")
+    run_dir = tmp_path / projection.run_id
+
+    clarification = "## Clarification Questions\n\n1. [required] Who is the user?\n\n## Assumptions\n\n- Local-first.\n"
+    for agent in ["architect", "engineer", "reviewer"]:
+        _write_stage_output(run_dir, agent, Stage.CLARIFICATION, clarification)
+
+    (run_dir / "input" / "clarification_questions.json").write_text('{"questions":[{"id":"q_001","required":true}]}', encoding="utf-8")
+    (run_dir / "input" / "human_answers.json").write_text('{"answers":{"q_001":"Local developer"}}', encoding="utf-8")
+    (run_dir / "input" / "human_answers.md").write_text("q_001: Local developer", encoding="utf-8")
+    (run_dir / "input" / "clarified_requirement.md").write_text("# Clarified Requirement\nLocal developer MVP.", encoding="utf-8")
+
+    draft = "## Summary\nA\n\n## Proposed Design\nB\n\n## Modules\nC\n\n## Data Flow\nD\n\n## Risks\nE\n\n## Open Questions\nF\n"
+    for agent in ["architect", "engineer"]:
+        _write_stage_output(run_dir, agent, Stage.DRAFT_DESIGN, draft)
+
+    review = "## Review Summary\nA\n\n## Issues\nB\n\n## Conflicts\nC\n\n## Suggestions\nD\n\n## Questions For Human\nE\n"
+    for agent in ["architect", "engineer", "reviewer"]:
+        _write_stage_output(run_dir, agent, Stage.CROSS_REVIEW, review)
+
+    revision = "## Revised Design\nA\n\n## Changes Made\nB\n\n## Remaining Risks\nC\n\n## Implementation Notes\nD\n"
+    for agent in ["architect", "engineer"]:
+        _write_stage_output(run_dir, agent, Stage.REVISION, revision)
+
+    synth = run_dir / "agents" / "synthesizer"
+    synth.mkdir(parents=True, exist_ok=True)
+    (synth / "design_doc.v1.md").write_text("# Design Document\n\n## Architecture\nFile-first", encoding="utf-8")
+    (synth / "execution_doc.v1.md").write_text("# Execution Document\n\n## Implementation Plan\nBuild", encoding="utf-8")
+
+    finalize_run(run_dir)
+
+    assert (run_dir / "output" / "design_doc.md").is_file()
+    assert (run_dir / "output" / "execution_doc.md").is_file()
+    assert (run_dir / "output" / "transcript.md").is_file()
+    assert (run_dir / "agents" / "architect" / "draft_response.v1.md").is_file()
+    assert (run_dir / "agents" / "reviewer" / "review_response.v1.md").is_file()
+```
+
+- [ ] **Step 2: Run real MVP flow test**
+
+Run:
+
+```bash
+pytest backend/tests/test_mvp_flow.py -q
+```
+
+Expected: PASS after Tasks 10 through 16 are complete.
+
+- [ ] **Step 3: Run all verification**
+
+Run:
+
+```bash
+pytest -q
+npm --prefix frontend test -- --run
+```
+
+Expected: PASS.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add backend/tests/test_mvp_flow.py
+git commit -m "test: add real MVP flow coverage"
 ```
 
 ---
@@ -1489,12 +2905,17 @@ git commit -m "test: add MVP flow verification"
 ## Self-Review Checklist
 
 - Spec coverage:
-  - File-first storage is covered in Tasks 2, 3, and 9.
-  - LangGraph fixed workflow is covered in Task 5.
-  - Manual/file/mock runner boundary is covered in Task 4.
-  - Single write entrance and versioned outputs are covered in Tasks 3, 4, and 8.
-  - Web UI stage board and timeline are covered in Task 7.
-  - Final output generation is covered in Task 8.
+  - File-first storage starts in Tasks 2, 3, and 9, then becomes authoritative through Task 10.
+  - LangGraph fixed workflow starts in Task 5 and becomes connected to runner/import flow in Task 13.
+  - Manual/file/mock runner boundary is covered in Task 4 and exercised through Task 13.
+  - Single write entrance and versioned outputs are implemented in Task 10.
+  - Full-stage state projection is implemented in Task 11.
+  - Prompt template injection is implemented in Task 12.
+  - Clarification merge is implemented in Task 14.
+  - API completion is implemented in Task 15.
+  - Web UI stage board, timeline, and submission flow are covered in Tasks 7 and 16.
+  - Final output generation is covered in Task 8 and exercised in Task 17.
+  - Real MVP flow coverage is provided by Task 17.
 - Placeholder scan:
   - This plan avoids placeholder tokens and unspecified implementation steps.
   - Every code-writing step includes concrete file content or a concrete code block.
