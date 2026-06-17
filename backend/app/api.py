@@ -6,7 +6,9 @@ from pydantic import BaseModel
 from backend.app.models import Stage
 from backend.app.services.event_service import read_events
 from backend.app.services.file_service import write_text
+from backend.app.services.human_control_service import advance_stage, revert_stage, skip_agent
 from backend.app.services.run_service import create_run, get_run_dir, list_runs
+from backend.app.services.state_service import recompute_state
 from backend.app.services.workflow_service import import_from_inbox
 
 RUNS_ROOT = Path("runs")
@@ -23,6 +25,15 @@ class SubmitAgentOutputRequest(BaseModel):
     content: str
 
 
+class SkipAgentRequest(BaseModel):
+    stage: Stage
+    reason: str
+
+
+class RevertStageRequest(BaseModel):
+    reason: str
+
+
 @router.get("/runs")
 def list_runs_endpoint():
     return list_runs(RUNS_ROOT)
@@ -34,10 +45,45 @@ def create_run_endpoint(request: CreateRunRequest):
     return projection.model_dump(mode="json")
 
 
+@router.get("/runs/{run_id}")
+def get_run_endpoint(run_id: str):
+    try:
+        run_dir = get_run_dir(RUNS_ROOT, run_id)
+        return recompute_state(run_dir).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
 @router.get("/runs/{run_id}/events")
 def get_events_endpoint(run_id: str):
     try:
         return read_events(get_run_dir(RUNS_ROOT, run_id))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.post("/runs/{run_id}/advance")
+def advance_run_endpoint(run_id: str):
+    try:
+        return advance_stage(get_run_dir(RUNS_ROOT, run_id)).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/runs/{run_id}/agents/{agent_id}/skip")
+def skip_agent_endpoint(run_id: str, agent_id: str, request: SkipAgentRequest):
+    try:
+        return skip_agent(get_run_dir(RUNS_ROOT, run_id), agent_id, request.stage, request.reason).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.post("/runs/{run_id}/revert")
+def revert_run_endpoint(run_id: str, request: RevertStageRequest):
+    try:
+        return revert_stage(get_run_dir(RUNS_ROOT, run_id), request.reason).model_dump(mode="json")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
 
