@@ -11,4 +11,4 @@ def test_workflow_can_start_requirement_stage(tmp_path: Path) -> None:
     result = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path)})
 
     assert result["run_id"] == projection.run_id
-    assert result["stage"] == "requirement"
+    assert result["stage"] == "clarification"

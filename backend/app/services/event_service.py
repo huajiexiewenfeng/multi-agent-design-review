@@ -31,3 +31,14 @@ def append_event(
     }
     with (run_dir / "events.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def read_events(run_dir: Path) -> list[dict[str, object]]:
+    events_file = run_dir / "events.jsonl"
+    if not events_file.is_file():
+        return []
+    events: list[dict[str, object]] = []
+    for raw in events_file.read_text(encoding="utf-8").splitlines():
+        if raw.strip():
+            events.append(json.loads(raw))
+    return events

@@ -12,4 +12,4 @@ def test_create_run_writes_required_files(tmp_path: Path) -> None:
     assert (run_dir / "runners.yaml").is_file()
     assert (run_dir / "input" / "requirement.md").read_text(encoding="utf-8").startswith("# Requirement")
     assert (run_dir / "inbox" / "architect").is_dir()
-    assert projection.status.value == "ready_to_advance"
+    assert projection.status.value == "waiting_input"

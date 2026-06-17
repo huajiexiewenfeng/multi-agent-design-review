@@ -12,5 +12,5 @@ def test_create_run_api(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["stage"] == "requirement"
-    assert body["status"] == "ready_to_advance"
+    assert body["stage"] == "clarification"
+    assert body["status"] == "waiting_input"
