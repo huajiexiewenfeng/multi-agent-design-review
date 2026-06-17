@@ -1,22 +1,61 @@
 from pathlib import Path
 
+from backend.app.models import Stage
 from backend.app.services.finalize_service import finalize_run
 from backend.app.services.run_service import create_run
+from backend.app.services.workflow_service import import_from_inbox
 
 
-def test_phase0_smoke_flow_with_manual_synthesis_files(tmp_path: Path) -> None:
+def _write_stage_output(run_dir: Path, agent: str, stage: Stage, content: str) -> None:
+    inbox = run_dir / "inbox" / agent
+    inbox.mkdir(parents=True, exist_ok=True)
+    (inbox / f"{stage.value}.md").write_text(content, encoding="utf-8")
+    import_from_inbox(run_dir, agent, stage)
+
+
+def test_real_mvp_flow_through_all_authoritative_outputs(tmp_path: Path) -> None:
     projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild MVP")
     run_dir = tmp_path / projection.run_id
-    synth_dir = run_dir / "agents" / "synthesizer"
-    synth_dir.mkdir(parents=True, exist_ok=True)
-    (synth_dir / "design_doc.v1.md").write_text("# Design Document\n\n## Architecture\nFile-first", encoding="utf-8")
-    (synth_dir / "execution_doc.v1.md").write_text(
-        "# Execution Document\n\n## Implementation Plan\nBuild services",
+
+    clarification = "## Clarification Questions\n\n1. [required] Who is the user?\n\n## Assumptions\n\n- Local-first.\n"
+    for agent in ["architect", "engineer", "reviewer"]:
+        _write_stage_output(run_dir, agent, Stage.CLARIFICATION, clarification)
+
+    (run_dir / "input" / "clarification_questions.json").write_text(
+        '{"questions":[{"id":"q_001","required":true}]}',
         encoding="utf-8",
     )
+    (run_dir / "input" / "human_answers.json").write_text(
+        '{"answers":{"q_001":"Local developer"}}',
+        encoding="utf-8",
+    )
+    (run_dir / "input" / "human_answers.md").write_text("q_001: Local developer", encoding="utf-8")
+    (run_dir / "input" / "clarified_requirement.md").write_text(
+        "# Clarified Requirement\nLocal developer MVP.",
+        encoding="utf-8",
+    )
+
+    draft = "## Summary\nA\n\n## Proposed Design\nB\n\n## Modules\nC\n\n## Data Flow\nD\n\n## Risks\nE\n\n## Open Questions\nF\n"
+    for agent in ["architect", "engineer"]:
+        _write_stage_output(run_dir, agent, Stage.DRAFT_DESIGN, draft)
+
+    review = "## Review Summary\nA\n\n## Issues\nB\n\n## Conflicts\nC\n\n## Suggestions\nD\n\n## Questions For Human\nE\n"
+    for agent in ["architect", "engineer", "reviewer"]:
+        _write_stage_output(run_dir, agent, Stage.CROSS_REVIEW, review)
+
+    revision = "## Revised Design\nA\n\n## Changes Made\nB\n\n## Remaining Risks\nC\n\n## Implementation Notes\nD\n"
+    for agent in ["architect", "engineer"]:
+        _write_stage_output(run_dir, agent, Stage.REVISION, revision)
+
+    synth = run_dir / "agents" / "synthesizer"
+    synth.mkdir(parents=True, exist_ok=True)
+    (synth / "design_doc.v1.md").write_text("# Design Document\n\n## Architecture\nFile-first", encoding="utf-8")
+    (synth / "execution_doc.v1.md").write_text("# Execution Document\n\n## Implementation Plan\nBuild", encoding="utf-8")
 
     finalize_run(run_dir)
 
     assert (run_dir / "output" / "design_doc.md").is_file()
     assert (run_dir / "output" / "execution_doc.md").is_file()
     assert (run_dir / "output" / "transcript.md").is_file()
+    assert (run_dir / "agents" / "architect" / "draft_response.v1.md").is_file()
+    assert (run_dir / "agents" / "reviewer" / "review_response.v1.md").is_file()

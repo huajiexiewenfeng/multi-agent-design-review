@@ -25,18 +25,25 @@ def _next_version(agent_dir: Path, artifact: str) -> int:
     return max(versions, default=0) + 1
 
 
-def _first_inbox_markdown(run_dir: Path, agent_id: str) -> Path:
+def _first_inbox_markdown(run_dir: Path, agent_id: str, stage: Stage, artifact: str) -> Path:
     inbox_dir = run_dir / "inbox" / agent_id
     files = sorted(inbox_dir.glob("*.md"))
     if not files:
         raise FileNotFoundError(f"No markdown files found in {inbox_dir}")
+    preferred = [
+        path
+        for path in files
+        if stage.value in path.stem or artifact in path.stem or path.stem.endswith("_manual")
+    ]
+    if preferred:
+        return preferred[-1]
     return files[0]
 
 
 def import_from_inbox(run_dir: Path, agent_id: str, stage: Stage) -> Path:
     artifact = ARTIFACT_BY_STAGE[stage]
     with run_lock(run_dir):
-        source = _first_inbox_markdown(run_dir, agent_id)
+        source = _first_inbox_markdown(run_dir, agent_id, stage, artifact)
         errors = validate_stage_output(source, stage)
         if errors:
             append_event(
