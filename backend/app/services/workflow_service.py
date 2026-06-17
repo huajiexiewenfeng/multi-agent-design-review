@@ -14,6 +14,13 @@ ARTIFACT_BY_STAGE: dict[Stage, str] = {
     Stage.REVISION: "revision_response",
 }
 
+INBOX_HINTS_BY_STAGE: dict[Stage, list[str]] = {
+    Stage.CLARIFICATION: ["clarification"],
+    Stage.DRAFT_DESIGN: ["draft"],
+    Stage.CROSS_REVIEW: ["review"],
+    Stage.REVISION: ["revision"],
+}
+
 
 def _next_version(agent_dir: Path, artifact: str) -> int:
     versions: list[int] = []
@@ -30,10 +37,11 @@ def _first_inbox_markdown(run_dir: Path, agent_id: str, stage: Stage, artifact: 
     files = sorted(inbox_dir.glob("*.md"))
     if not files:
         raise FileNotFoundError(f"No markdown files found in {inbox_dir}")
+    hints = [stage.value, artifact, *INBOX_HINTS_BY_STAGE.get(stage, [])]
     preferred = [
         path
         for path in files
-        if stage.value in path.stem or artifact in path.stem or path.stem.endswith("_manual")
+        if any(hint in path.stem for hint in hints) or path.stem.endswith("_manual")
     ]
     if preferred:
         return preferred[-1]
