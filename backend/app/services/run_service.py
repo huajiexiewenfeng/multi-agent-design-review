@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -51,3 +52,19 @@ def create_run(runs_root: Path, title: str, requirement: str):
         projection = recompute_state(run_dir)
         write_json(run_dir / "run.json", projection.model_dump(mode="json") | {"title": title})
         return projection
+
+
+def list_runs(runs_root: Path) -> list[dict[str, object]]:
+    if not runs_root.exists():
+        return []
+    runs = []
+    for run_json in sorted(runs_root.glob("*/run.json")):
+        runs.append(json.loads(run_json.read_text(encoding="utf-8")))
+    return runs
+
+
+def get_run_dir(runs_root: Path, run_id: str) -> Path:
+    run_dir = runs_root / run_id
+    if not run_dir.is_dir():
+        raise FileNotFoundError(run_id)
+    return run_dir
