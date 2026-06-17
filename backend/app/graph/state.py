@@ -6,3 +6,4 @@ class WorkflowState(TypedDict, total=False):
     runs_root: str
     stage: str
     confirmed: bool
+    checkpoint: bool

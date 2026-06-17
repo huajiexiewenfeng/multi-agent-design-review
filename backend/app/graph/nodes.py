@@ -12,6 +12,14 @@ def load_projection_node(state: WorkflowState) -> WorkflowState:
     return {**state, "stage": projection.stage.value}
 
 
+def checkpoint_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    projection = recompute_state(run_dir)
+    if not state.get("confirmed", False):
+        return {**state, "stage": Stage.REQUIREMENT.value, "checkpoint": True}
+    return {**state, "stage": projection.stage.value, "checkpoint": False}
+
+
 def clarification_node(state: WorkflowState) -> WorkflowState:
     run_dir = Path(state["runs_root"]) / state["run_id"]
     for agent in ["architect", "engineer", "reviewer"]:
