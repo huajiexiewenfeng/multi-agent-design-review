@@ -23,6 +23,18 @@ This plan is split into two phases:
 
 The MVP is not complete after Phase 0. Completion requires Phase 1.
 
+## Architecture Decision: Keep LangGraph, Make It Main-Path
+
+External review v3 correctly identified that a partially wired graph is worse than no graph. This plan keeps LangGraph because the approved design selected it as the workflow engine, but it must not remain a decorative shell.
+
+Implementation rule:
+
+- Services remain the fact owners: file writes, event append, import, validation, and projection all stay in service modules.
+- LangGraph remains the orchestrator: stage nodes call services and runners, then stop at human checkpoints.
+- No graph invocation may silently cross a human checkpoint.
+- Manual API actions such as `advance`, `skip`, and `save clarification answers` write facts; the next graph invocation resumes from those facts.
+- `Task 22` completes the graph main path so Draft, Review, Revision, and Synthesis are not handled only by direct service calls.
+
 ## File Structure
 
 Create these top-level files:
@@ -3571,6 +3583,359 @@ git commit -m "test: add graph-driven MVP flow"
 
 ---
 
+## Task 22: Complete LangGraph Main Path for All Stages
+
+**Files:**
+- Modify: `backend/app/graph/nodes.py`
+- Modify: `backend/app/graph/edges.py`
+- Modify: `backend/app/services/runner_service.py`
+- Modify: `backend/app/runners/mock.py`
+- Test: `backend/tests/test_graph_main_path.py`
+
+- [ ] **Step 1: Write failing main-path graph test**
+
+Create `backend/tests/test_graph_main_path.py`:
+
+```python
+from backend.app.graph.edges import build_workflow
+from backend.app.services.clarification_service import merge_clarification_questions
+from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
+from backend.app.services.run_service import create_run
+
+
+def test_graph_main_path_runs_each_stage_without_crossing_human_gate(tmp_path) -> None:
+    projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild MVP")
+    graph = build_workflow()
+    run_dir = tmp_path / projection.run_id
+
+    first = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": False})
+    assert first["checkpoint"] is True
+    assert first["stage"] == "requirement"
+
+    clarification = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": True})
+    assert clarification["stage"] == "clarified_requirement"
+    assert (run_dir / "agents" / "architect" / "clarification_questions.v1.md").is_file()
+
+    merge_clarification_questions(run_dir)
+    save_clarification_answers(run_dir, {"q_001": "Local developer"})
+    save_clarified_requirement(run_dir, "# Clarified Requirement\nLocal developer")
+
+    draft = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": True})
+    assert draft["stage"] == "cross_review"
+    assert (run_dir / "agents" / "architect" / "draft_response.v1.md").is_file()
+    assert (run_dir / "agents" / "engineer" / "draft_response.v1.md").is_file()
+
+    review = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": True})
+    assert review["stage"] == "revision"
+    assert (run_dir / "agents" / "reviewer" / "review_response.v1.md").is_file()
+
+    revision = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": True})
+    assert revision["stage"] == "synthesis"
+    assert (run_dir / "agents" / "architect" / "revision_response.v1.md").is_file()
+
+    synthesis = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": True})
+    assert synthesis["stage"] == "synthesis"
+    assert (run_dir / "agents" / "synthesizer" / "design_doc.v1.md").is_file()
+    assert (run_dir / "agents" / "synthesizer" / "execution_doc.v1.md").is_file()
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+pytest backend/tests/test_graph_main_path.py -q
+```
+
+Expected: FAIL because the graph only runs clarification.
+
+- [ ] **Step 3: Make mock runner stage-aware**
+
+Modify `backend/app/runners/mock.py` so `MockRunner.run()` writes stage-specific outputs:
+
+```python
+from datetime import datetime, timezone
+from pathlib import Path
+
+from backend.app.runners.base import RunnerResult
+
+
+MOCK_OUTPUTS = {
+    "clarification": (
+        "clarification_result.md",
+        "## Clarification Questions\n\n1. [required] Who is the target user?\n\n## Assumptions\n\n- Local-first MVP.\n",
+    ),
+    "draft_design": (
+        "draft_result.md",
+        "## Summary\nMock summary\n\n## Proposed Design\nMock design\n\n## Modules\nMock modules\n\n## Data Flow\nMock flow\n\n## Risks\nMock risks\n\n## Open Questions\nNone\n",
+    ),
+    "cross_review": (
+        "review_result.md",
+        "## Review Summary\nMock review\n\n## Issues\nNone\n\n## Conflicts\nNone\n\n## Suggestions\nProceed\n\n## Questions For Human\nNone\n",
+    ),
+    "revision": (
+        "revision_result.md",
+        "## Revised Design\nMock revision\n\n## Changes Made\nReviewed\n\n## Remaining Risks\nNone\n\n## Implementation Notes\nImplement incrementally\n",
+    ),
+    "synthesis": (
+        "synthesis_result.md",
+        "# Design Document\n\n## Architecture\nMock architecture\n\n# Execution Document\n\n## Implementation Plan\nMock plan\n",
+    ),
+}
+
+
+class MockRunner:
+    def run(
+        self,
+        run_id: str,
+        agent_id: str,
+        stage: str,
+        prompt_file: Path,
+        inbox_dir: Path,
+        runner_log_dir: Path,
+        timeout_seconds: int,
+        metadata: dict[str, object],
+    ) -> RunnerResult:
+        started = datetime.now(timezone.utc).isoformat()
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        runner_log_dir.mkdir(parents=True, exist_ok=True)
+        output_name, content = MOCK_OUTPUTS[stage]
+        (inbox_dir / output_name).write_text(content, encoding="utf-8")
+        (runner_log_dir / "mock.log").write_text(f"mock runner for {run_id}:{agent_id}:{stage}\n", encoding="utf-8")
+        finished = datetime.now(timezone.utc).isoformat()
+        return RunnerResult(
+            status="succeeded",
+            exit_code=0,
+            produced_files=[output_name],
+            stdout_summary="mock output written",
+            started_at=started,
+            finished_at=finished,
+        )
+```
+
+- [ ] **Step 4: Teach runner service to import synthesis output**
+
+Modify `backend/app/services/runner_service.py` so `run_agent_stage()` handles synthesis specially:
+
+```python
+from pathlib import Path
+
+from backend.app.models import Stage
+from backend.app.runners.file import FileRunner
+from backend.app.runners.manual import ManualRunner
+from backend.app.runners.mock import MockRunner
+from backend.app.services.prompt_service import render_prompt
+from backend.app.services.workflow_service import import_from_inbox
+
+
+def get_runner(name: str):
+    runners = {
+        "manual": ManualRunner(),
+        "file": FileRunner(),
+        "mock": MockRunner(),
+    }
+    if name not in runners:
+        raise ValueError(f"Unsupported runner: {name}")
+    return runners[name]
+
+
+def _import_synthesis(run_dir: Path) -> None:
+    inbox_file = sorted((run_dir / "inbox" / "synthesizer").glob("*.md"))[0]
+    content = inbox_file.read_text(encoding="utf-8")
+    design_marker = "# Design Document"
+    execution_marker = "# Execution Document"
+    if design_marker not in content or execution_marker not in content:
+        raise ValueError("Synthesis output must contain Design and Execution document markers")
+    design_start = content.index(design_marker)
+    execution_start = content.index(execution_marker)
+    synthesizer_dir = run_dir / "agents" / "synthesizer"
+    synthesizer_dir.mkdir(parents=True, exist_ok=True)
+    (synthesizer_dir / "design_doc.v1.md").write_text(content[design_start:execution_start].strip() + "\n", encoding="utf-8")
+    (synthesizer_dir / "execution_doc.v1.md").write_text(content[execution_start:].strip() + "\n", encoding="utf-8")
+
+
+def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str = "mock") -> None:
+    prompt_name = {
+        Stage.CLARIFICATION: "clarification_prompt.md",
+        Stage.DRAFT_DESIGN: "draft_prompt.md",
+        Stage.CROSS_REVIEW: "review_prompt.md",
+        Stage.REVISION: "revision_prompt.md",
+        Stage.SYNTHESIS: "synthesis_prompt.md",
+    }[stage]
+    prompt_file = run_dir / "agents" / agent_id / prompt_name
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(render_prompt(stage, agent_id, run_dir), encoding="utf-8")
+    runner = get_runner(runner_name)
+    result = runner.run(
+        run_id=run_dir.name,
+        agent_id=agent_id,
+        stage=stage.value,
+        prompt_file=prompt_file,
+        inbox_dir=run_dir / "inbox" / agent_id,
+        runner_log_dir=run_dir / "runner_logs" / agent_id,
+        timeout_seconds=30,
+        metadata={},
+    )
+    if result.status == "succeeded" and stage == Stage.SYNTHESIS:
+        _import_synthesis(run_dir)
+    elif result.status == "succeeded":
+        import_from_inbox(run_dir, agent_id, stage)
+```
+
+- [ ] **Step 5: Add graph nodes for all remaining stages**
+
+Modify `backend/app/graph/nodes.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.graph.state import WorkflowState
+from backend.app.models import Stage, StageStatus
+from backend.app.services.runner_service import run_agent_stage
+from backend.app.services.state_service import recompute_state
+
+
+def load_projection_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    projection = recompute_state(run_dir)
+    return {**state, "stage": projection.stage.value}
+
+
+def checkpoint_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    projection = recompute_state(run_dir)
+    if projection.status == StageStatus.READY_TO_ADVANCE and not state.get("confirmed", False):
+        return {**state, "stage": projection.stage.value, "checkpoint": True}
+    return {**state, "stage": projection.stage.value, "checkpoint": False}
+
+
+def clarification_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    for agent in ["architect", "engineer", "reviewer"]:
+        if not list((run_dir / "agents" / agent).glob("clarification_questions.v*.md")):
+            run_agent_stage(run_dir, agent, Stage.CLARIFICATION)
+    projection = recompute_state(run_dir)
+    return {**state, "stage": projection.stage.value, "checkpoint": False}
+
+
+def draft_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    for agent in ["architect", "engineer"]:
+        if not list((run_dir / "agents" / agent).glob("draft_response.v*.md")):
+            run_agent_stage(run_dir, agent, Stage.DRAFT_DESIGN)
+    projection = recompute_state(run_dir)
+    return {**state, "stage": projection.stage.value, "checkpoint": False}
+
+
+def review_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    for agent in ["architect", "engineer", "reviewer"]:
+        if not list((run_dir / "agents" / agent).glob("review_response.v*.md")):
+            run_agent_stage(run_dir, agent, Stage.CROSS_REVIEW)
+    projection = recompute_state(run_dir)
+    return {**state, "stage": projection.stage.value, "checkpoint": False}
+
+
+def revision_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    for agent in ["architect", "engineer"]:
+        if not list((run_dir / "agents" / agent).glob("revision_response.v*.md")):
+            run_agent_stage(run_dir, agent, Stage.REVISION)
+    projection = recompute_state(run_dir)
+    return {**state, "stage": projection.stage.value, "checkpoint": False}
+
+
+def synthesis_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    if not list((run_dir / "agents" / "synthesizer").glob("design_doc.v*.md")):
+        run_agent_stage(run_dir, "synthesizer", Stage.SYNTHESIS)
+    projection = recompute_state(run_dir)
+    return {**state, "stage": projection.stage.value, "checkpoint": False}
+```
+
+- [ ] **Step 6: Route graph to exactly one runnable stage per invocation**
+
+Modify `backend/app/graph/edges.py`:
+
+```python
+from langgraph.graph import END, StateGraph
+
+from backend.app.graph.nodes import (
+    checkpoint_node,
+    clarification_node,
+    draft_node,
+    load_projection_node,
+    review_node,
+    revision_node,
+    synthesis_node,
+)
+from backend.app.graph.state import WorkflowState
+
+
+def _after_checkpoint(state: WorkflowState) -> str:
+    if state.get("checkpoint"):
+        return END
+    return {
+        "requirement": "clarification",
+        "clarification": "clarification",
+        "clarified_requirement": "draft",
+        "draft_design": "draft",
+        "cross_review": "review",
+        "revision": "revision",
+        "synthesis": "synthesis",
+    }.get(state["stage"], END)
+
+
+def build_workflow():
+    graph = StateGraph(WorkflowState)
+    graph.add_node("load_projection", load_projection_node)
+    graph.add_node("checkpoint", checkpoint_node)
+    graph.add_node("clarification", clarification_node)
+    graph.add_node("draft", draft_node)
+    graph.add_node("review", review_node)
+    graph.add_node("revision", revision_node)
+    graph.add_node("synthesis", synthesis_node)
+    graph.set_entry_point("load_projection")
+    graph.add_edge("load_projection", "checkpoint")
+    graph.add_conditional_edges(
+        "checkpoint",
+        _after_checkpoint,
+        {
+            END: END,
+            "clarification": "clarification",
+            "draft": "draft",
+            "review": "review",
+            "revision": "revision",
+            "synthesis": "synthesis",
+        },
+    )
+    graph.add_edge("clarification", END)
+    graph.add_edge("draft", END)
+    graph.add_edge("review", END)
+    graph.add_edge("revision", END)
+    graph.add_edge("synthesis", END)
+    return graph.compile()
+```
+
+- [ ] **Step 7: Run graph main-path test**
+
+Run:
+
+```bash
+pytest backend/tests/test_graph_main_path.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add backend/app/graph backend/app/services/runner_service.py backend/app/runners/mock.py backend/tests/test_graph_main_path.py
+git commit -m "feat: complete LangGraph main path"
+```
+
+---
+
 ## Self-Review Checklist
 
 - Spec coverage:
@@ -3589,6 +3954,8 @@ git commit -m "test: add graph-driven MVP flow"
   - LangGraph checkpoint gating is implemented in Task 19.
   - Per-question clarification answers and clarified requirement inputs are implemented in Task 20.
   - Graph-driven end-to-end coverage is implemented in Task 21.
+  - LangGraph main-path orchestration for Draft, Review, Revision, and Synthesis is implemented in Task 22.
+  - External review v3 is addressed by keeping LangGraph and making it the stage orchestrator, instead of leaving it as a partial wrapper.
 - Placeholder scan:
   - This plan avoids placeholder tokens and unspecified implementation steps.
   - Every code-writing step includes concrete file content or a concrete code block.
