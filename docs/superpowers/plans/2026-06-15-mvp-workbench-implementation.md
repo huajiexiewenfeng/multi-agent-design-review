@@ -2902,6 +2902,675 @@ git commit -m "test: add real MVP flow coverage"
 
 ---
 
+## Task 18: Human Control API, Run Detail, Skip, and Revert
+
+**Files:**
+- Modify: `backend/app/api.py`
+- Modify: `backend/app/services/run_service.py`
+- Create: `backend/app/services/human_control_service.py`
+- Test: `backend/tests/test_human_control_api.py`
+
+- [ ] **Step 1: Write failing human control API tests**
+
+Create `backend/tests/test_human_control_api.py`:
+
+```python
+from fastapi.testclient import TestClient
+
+import backend.app.api as api_module
+from backend.app.main import app
+
+
+def test_get_run_detail_returns_projection(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.get(f"/api/runs/{created['run_id']}")
+
+    assert response.status_code == 200
+    assert response.json()["run_id"] == created["run_id"]
+
+
+def test_skip_agent_writes_event_and_recomputes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(
+        f"/api/runs/{created['run_id']}/agents/reviewer/skip",
+        json={"stage": "clarification", "reason": "Not needed for this run"},
+    )
+
+    assert response.status_code == 200
+    events = client.get(f"/api/runs/{created['run_id']}/events").json()
+    assert any(event["event_type"] == "agent_skipped" for event in events)
+
+
+def test_advance_writes_stage_advanced_event(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(f"/api/runs/{created['run_id']}/advance")
+
+    assert response.status_code == 200
+    events = client.get(f"/api/runs/{created['run_id']}/events").json()
+    assert any(event["event_type"] == "stage_advanced" for event in events)
+
+
+def test_revert_writes_stage_reverted_event(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(f"/api/runs/{created['run_id']}/revert", json={"reason": "Need to revise"})
+
+    assert response.status_code == 200
+    events = client.get(f"/api/runs/{created['run_id']}/events").json()
+    assert any(event["event_type"] == "stage_reverted" for event in events)
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run:
+
+```bash
+pytest backend/tests/test_human_control_api.py -q
+```
+
+Expected: FAIL because the endpoints and service do not exist.
+
+- [ ] **Step 3: Add human control service**
+
+Create `backend/app/services/human_control_service.py`:
+
+```python
+from pathlib import Path
+
+from backend.app.models import ActorType, Stage, StageStatus
+from backend.app.services.event_service import append_event
+from backend.app.services.file_service import run_lock, write_json
+from backend.app.services.state_service import recompute_state
+
+
+def advance_stage(run_dir: Path):
+    with run_lock(run_dir):
+        projection = recompute_state(run_dir)
+        if projection.status != StageStatus.READY_TO_ADVANCE:
+            raise ValueError("Current stage is not ready to advance")
+        append_event(
+            run_dir,
+            projection.stage,
+            "human",
+            ActorType.HUMAN,
+            "stage_advanced",
+            f"Advanced from {projection.stage.value}",
+        )
+        updated = recompute_state(run_dir)
+        write_json(run_dir / "run.json", updated.model_dump(mode="json"))
+        return updated
+
+
+def skip_agent(run_dir: Path, agent_id: str, stage: Stage, reason: str):
+    with run_lock(run_dir):
+        append_event(
+            run_dir,
+            stage,
+            agent_id,
+            ActorType.AGENT,
+            "agent_skipped",
+            reason,
+            metadata={"reason": reason},
+        )
+        updated = recompute_state(run_dir)
+        write_json(run_dir / "run.json", updated.model_dump(mode="json"))
+        return updated
+
+
+def revert_stage(run_dir: Path, reason: str):
+    with run_lock(run_dir):
+        projection = recompute_state(run_dir)
+        append_event(
+            run_dir,
+            projection.stage,
+            "human",
+            ActorType.HUMAN,
+            "stage_reverted",
+            reason,
+            metadata={"reason": reason},
+        )
+        updated = recompute_state(run_dir)
+        write_json(run_dir / "run.json", updated.model_dump(mode="json"))
+        return updated
+```
+
+- [ ] **Step 4: Add API request models and endpoints**
+
+Modify `backend/app/api.py` to include:
+
+```python
+from backend.app.services.human_control_service import advance_stage, revert_stage, skip_agent
+from backend.app.services.state_service import recompute_state
+
+
+class SkipAgentRequest(BaseModel):
+    stage: Stage
+    reason: str
+
+
+class RevertStageRequest(BaseModel):
+    reason: str
+
+
+@router.get("/runs/{run_id}")
+def get_run_endpoint(run_id: str):
+    try:
+        run_dir = get_run_dir(RUNS_ROOT, run_id)
+        return recompute_state(run_dir).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+
+@router.post("/runs/{run_id}/advance")
+def advance_run_endpoint(run_id: str):
+    try:
+        return advance_stage(get_run_dir(RUNS_ROOT, run_id)).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/runs/{run_id}/agents/{agent_id}/skip")
+def skip_agent_endpoint(run_id: str, agent_id: str, request: SkipAgentRequest):
+    try:
+        return skip_agent(get_run_dir(RUNS_ROOT, run_id), agent_id, request.stage, request.reason).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+
+@router.post("/runs/{run_id}/revert")
+def revert_run_endpoint(run_id: str, request: RevertStageRequest):
+    try:
+        return revert_stage(get_run_dir(RUNS_ROOT, run_id), request.reason).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found")
+```
+
+- [ ] **Step 5: Run human control API tests**
+
+Run:
+
+```bash
+pytest backend/tests/test_human_control_api.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend/app/api.py backend/app/services/human_control_service.py backend/tests/test_human_control_api.py
+git commit -m "feat: add human control API"
+```
+
+---
+
+## Task 19: LangGraph Checkpoint Stop and Resume Semantics
+
+**Files:**
+- Modify: `backend/app/graph/state.py`
+- Modify: `backend/app/graph/nodes.py`
+- Modify: `backend/app/graph/edges.py`
+- Test: `backend/tests/test_graph_checkpoint.py`
+
+- [ ] **Step 1: Write failing checkpoint tests**
+
+Create `backend/tests/test_graph_checkpoint.py`:
+
+```python
+from backend.app.graph.edges import build_workflow
+from backend.app.services.run_service import create_run
+
+
+def test_graph_stops_at_checkpoint_without_confirmation(tmp_path) -> None:
+    projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild")
+    graph = build_workflow()
+
+    result = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": False})
+
+    assert result["checkpoint"] is True
+    assert result["stage"] == "requirement"
+
+
+def test_graph_continues_after_confirmation(tmp_path) -> None:
+    projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild")
+    graph = build_workflow()
+
+    result = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": True})
+
+    assert result["checkpoint"] is False
+    assert result["stage"] in {"clarification", "clarified_requirement"}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run:
+
+```bash
+pytest backend/tests/test_graph_checkpoint.py -q
+```
+
+Expected: FAIL because graph state does not expose checkpoint behavior.
+
+- [ ] **Step 3: Extend workflow state with checkpoint flag**
+
+Modify `backend/app/graph/state.py`:
+
+```python
+from typing import TypedDict
+
+
+class WorkflowState(TypedDict, total=False):
+    run_id: str
+    runs_root: str
+    stage: str
+    confirmed: bool
+    checkpoint: bool
+```
+
+- [ ] **Step 4: Add checkpoint node**
+
+Modify `backend/app/graph/nodes.py` to include:
+
+```python
+from backend.app.models import StageStatus
+
+
+def checkpoint_node(state: WorkflowState) -> WorkflowState:
+    run_dir = Path(state["runs_root"]) / state["run_id"]
+    projection = recompute_state(run_dir)
+    if projection.status == StageStatus.READY_TO_ADVANCE and not state.get("confirmed", False):
+        return {**state, "stage": projection.stage.value, "checkpoint": True}
+    return {**state, "stage": projection.stage.value, "checkpoint": False}
+```
+
+- [ ] **Step 5: Route based on checkpoint**
+
+Modify `backend/app/graph/edges.py`:
+
+```python
+from langgraph.graph import END, StateGraph
+
+from backend.app.graph.nodes import checkpoint_node, clarification_node, load_projection_node
+from backend.app.graph.state import WorkflowState
+
+
+def _after_checkpoint(state: WorkflowState) -> str:
+    return END if state.get("checkpoint") else "clarification"
+
+
+def build_workflow():
+    graph = StateGraph(WorkflowState)
+    graph.add_node("load_projection", load_projection_node)
+    graph.add_node("checkpoint", checkpoint_node)
+    graph.add_node("clarification", clarification_node)
+    graph.set_entry_point("load_projection")
+    graph.add_edge("load_projection", "checkpoint")
+    graph.add_conditional_edges("checkpoint", _after_checkpoint, {END: END, "clarification": "clarification"})
+    graph.add_edge("clarification", END)
+    return graph.compile()
+```
+
+- [ ] **Step 6: Run checkpoint tests**
+
+Run:
+
+```bash
+pytest backend/tests/test_graph_checkpoint.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add backend/app/graph backend/tests/test_graph_checkpoint.py
+git commit -m "feat: add LangGraph checkpoint gating"
+```
+
+---
+
+## Task 20: Clarification Answers and Clarified Requirement Inputs
+
+**Files:**
+- Create: `backend/app/services/human_input_service.py`
+- Modify: `backend/app/api.py`
+- Modify: `frontend/src/api/client.ts`
+- Modify: `frontend/src/components/HumanInputPanel.tsx`
+- Test: `backend/tests/test_human_input_api.py`
+- Test: `frontend/src/__tests__/HumanInputPanel.test.tsx`
+
+- [ ] **Step 1: Write failing backend human input tests**
+
+Create `backend/tests/test_human_input_api.py`:
+
+```python
+from fastapi.testclient import TestClient
+
+import backend.app.api as api_module
+from backend.app.main import app
+
+
+def test_save_clarification_answers(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(
+        f"/api/runs/{created['run_id']}/clarification/answers",
+        json={"answers": {"q_001": "Local developer"}},
+    )
+
+    assert response.status_code == 200
+    run_dir = tmp_path / created["run_id"]
+    assert "q_001" in (run_dir / "input" / "human_answers.json").read_text(encoding="utf-8")
+    assert "Local developer" in (run_dir / "input" / "human_answers.md").read_text(encoding="utf-8")
+
+
+def test_save_clarified_requirement(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(
+        f"/api/runs/{created['run_id']}/clarified-requirement",
+        json={"content": "# Clarified Requirement\nUse local files."},
+    )
+
+    assert response.status_code == 200
+    run_dir = tmp_path / created["run_id"]
+    assert "local files" in (run_dir / "input" / "clarified_requirement.md").read_text(encoding="utf-8")
+```
+
+- [ ] **Step 2: Run backend tests to verify they fail**
+
+Run:
+
+```bash
+pytest backend/tests/test_human_input_api.py -q
+```
+
+Expected: FAIL because human input endpoints do not exist.
+
+- [ ] **Step 3: Add human input service**
+
+Create `backend/app/services/human_input_service.py`:
+
+```python
+from pathlib import Path
+import json
+
+from backend.app.models import ActorType, Stage
+from backend.app.services.event_service import append_event
+from backend.app.services.file_service import run_lock, write_json, write_text
+from backend.app.services.state_service import recompute_state
+
+
+def save_clarification_answers(run_dir: Path, answers: dict[str, str]):
+    with run_lock(run_dir):
+        write_json(run_dir / "input" / "human_answers.json", {"answers": answers})
+        markdown = ["# Human Answers", ""]
+        for question_id, answer in answers.items():
+            markdown.append(f"- `{question_id}`: {answer}")
+        markdown.append("")
+        write_text(run_dir / "input" / "human_answers.md", "\n".join(markdown))
+        append_event(run_dir, Stage.CLARIFIED_REQUIREMENT, "human", ActorType.HUMAN, "human_answer_submitted", "Submitted clarification answers", "input/human_answers.json")
+        projection = recompute_state(run_dir)
+        write_json(run_dir / "run.json", projection.model_dump(mode="json"))
+        return projection
+
+
+def save_clarified_requirement(run_dir: Path, content: str):
+    with run_lock(run_dir):
+        write_text(run_dir / "input" / "clarified_requirement.md", content)
+        append_event(run_dir, Stage.CLARIFIED_REQUIREMENT, "human", ActorType.HUMAN, "clarified_requirement_saved", "Saved clarified requirement", "input/clarified_requirement.md")
+        projection = recompute_state(run_dir)
+        write_json(run_dir / "run.json", projection.model_dump(mode="json"))
+        return projection
+```
+
+- [ ] **Step 4: Add human input API endpoints**
+
+Modify `backend/app/api.py` to include:
+
+```python
+from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
+
+
+class ClarificationAnswersRequest(BaseModel):
+    answers: dict[str, str]
+
+
+class ClarifiedRequirementRequest(BaseModel):
+    content: str
+
+
+@router.post("/runs/{run_id}/clarification/answers")
+def save_clarification_answers_endpoint(run_id: str, request: ClarificationAnswersRequest):
+    try:
+        return save_clarification_answers(get_run_dir(RUNS_ROOT, run_id), request.answers).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+
+@router.post("/runs/{run_id}/clarified-requirement")
+def save_clarified_requirement_endpoint(run_id: str, request: ClarifiedRequirementRequest):
+    try:
+        return save_clarified_requirement(get_run_dir(RUNS_ROOT, run_id), request.content).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Run not found")
+```
+
+- [ ] **Step 5: Write failing frontend human input test**
+
+Create `frontend/src/__tests__/HumanInputPanel.test.tsx`:
+
+```tsx
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { HumanInputPanel } from "../components/HumanInputPanel";
+
+describe("HumanInputPanel", () => {
+  it("submits clarification answers and clarified requirement", () => {
+    const onSaveAnswers = vi.fn();
+    const onSaveRequirement = vi.fn();
+    render(<HumanInputPanel onSaveAnswers={onSaveAnswers} onSaveRequirement={onSaveRequirement} />);
+
+    fireEvent.change(screen.getByLabelText("Human answers JSON"), { target: { value: '{"q_001":"Local developer"}' } });
+    fireEvent.click(screen.getByText("Save Answers"));
+    fireEvent.change(screen.getByLabelText("Clarified requirement"), { target: { value: "# Clarified" } });
+    fireEvent.click(screen.getByText("Save Clarified Requirement"));
+
+    expect(onSaveAnswers).toHaveBeenCalledWith({ q_001: "Local developer" });
+    expect(onSaveRequirement).toHaveBeenCalledWith("# Clarified");
+  });
+});
+```
+
+- [ ] **Step 6: Implement frontend human input panel and client methods**
+
+Modify `frontend/src/api/client.ts` to include:
+
+```ts
+export async function saveClarificationAnswers(runId: string, answers: Record<string, string>): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/clarification/answers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answers })
+  });
+  return response.json();
+}
+
+export async function saveClarifiedRequirement(runId: string, content: string): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/clarified-requirement`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+  });
+  return response.json();
+}
+```
+
+Modify `frontend/src/components/HumanInputPanel.tsx`:
+
+```tsx
+import { useState } from "react";
+
+export function HumanInputPanel({
+  onSaveAnswers,
+  onSaveRequirement
+}: {
+  onSaveAnswers: (answers: Record<string, string>) => void;
+  onSaveRequirement: (content: string) => void;
+}) {
+  const [answersJson, setAnswersJson] = useState("{}");
+  const [clarifiedRequirement, setClarifiedRequirement] = useState("");
+  return (
+    <section aria-label="Human input">
+      <h2>Human Input</h2>
+      <label>
+        Human answers JSON
+        <textarea value={answersJson} onChange={(event) => setAnswersJson(event.target.value)} />
+      </label>
+      <button onClick={() => onSaveAnswers(JSON.parse(answersJson))}>Save Answers</button>
+      <label>
+        Clarified requirement
+        <textarea value={clarifiedRequirement} onChange={(event) => setClarifiedRequirement(event.target.value)} />
+      </label>
+      <button onClick={() => onSaveRequirement(clarifiedRequirement)}>Save Clarified Requirement</button>
+    </section>
+  );
+}
+```
+
+- [ ] **Step 7: Run human input tests**
+
+Run:
+
+```bash
+pytest backend/tests/test_human_input_api.py -q
+npm --prefix frontend test -- --run
+```
+
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add backend/app/api.py backend/app/services/human_input_service.py backend/tests/test_human_input_api.py frontend/src/api/client.ts frontend/src/components/HumanInputPanel.tsx frontend/src/__tests__/HumanInputPanel.test.tsx
+git commit -m "feat: add human clarification inputs"
+```
+
+---
+
+## Task 21: Graph-Driven End-to-End Flow
+
+**Files:**
+- Create: `backend/tests/test_graph_driven_e2e.py`
+- Modify: `backend/app/graph/nodes.py`
+- Modify: `backend/app/graph/edges.py`
+
+- [ ] **Step 1: Write failing graph-driven E2E test**
+
+Create `backend/tests/test_graph_driven_e2e.py`:
+
+```python
+from backend.app.graph.edges import build_workflow
+from backend.app.models import Stage
+from backend.app.services.finalize_service import finalize_run
+from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
+from backend.app.services.run_service import create_run
+from backend.app.services.workflow_service import import_from_inbox
+
+
+def test_graph_driven_flow_reaches_clarification_checkpoint_then_finalizes(tmp_path) -> None:
+    projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild MVP")
+    graph = build_workflow()
+    run_dir = tmp_path / projection.run_id
+
+    first = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": False})
+    assert first["checkpoint"] is True
+
+    second = graph.invoke({"run_id": projection.run_id, "runs_root": str(tmp_path), "confirmed": True})
+    assert (run_dir / "agents" / "architect" / "clarification_questions.v1.md").is_file()
+
+    (run_dir / "input" / "clarification_questions.json").write_text('{"questions":[{"id":"q_001","required":true}]}', encoding="utf-8")
+    save_clarification_answers(run_dir, {"q_001": "Local developer"})
+    save_clarified_requirement(run_dir, "# Clarified Requirement\nLocal developer")
+
+    draft = "## Summary\nA\n\n## Proposed Design\nB\n\n## Modules\nC\n\n## Data Flow\nD\n\n## Risks\nE\n\n## Open Questions\nF\n"
+    for agent in ["architect", "engineer"]:
+        inbox = run_dir / "inbox" / agent
+        inbox.mkdir(parents=True, exist_ok=True)
+        (inbox / "draft.md").write_text(draft, encoding="utf-8")
+        import_from_inbox(run_dir, agent, Stage.DRAFT_DESIGN)
+
+    review = "## Review Summary\nA\n\n## Issues\nB\n\n## Conflicts\nC\n\n## Suggestions\nD\n\n## Questions For Human\nE\n"
+    for agent in ["architect", "engineer", "reviewer"]:
+        inbox = run_dir / "inbox" / agent
+        inbox.mkdir(parents=True, exist_ok=True)
+        (inbox / "review.md").write_text(review, encoding="utf-8")
+        import_from_inbox(run_dir, agent, Stage.CROSS_REVIEW)
+
+    revision = "## Revised Design\nA\n\n## Changes Made\nB\n\n## Remaining Risks\nC\n\n## Implementation Notes\nD\n"
+    for agent in ["architect", "engineer"]:
+        inbox = run_dir / "inbox" / agent
+        inbox.mkdir(parents=True, exist_ok=True)
+        (inbox / "revision.md").write_text(revision, encoding="utf-8")
+        import_from_inbox(run_dir, agent, Stage.REVISION)
+
+    synth = run_dir / "agents" / "synthesizer"
+    synth.mkdir(parents=True, exist_ok=True)
+    (synth / "design_doc.v1.md").write_text("# Design Document\n\n## Architecture\nFile-first", encoding="utf-8")
+    (synth / "execution_doc.v1.md").write_text("# Execution Document\n\n## Implementation Plan\nBuild", encoding="utf-8")
+    finalize_run(run_dir)
+
+    assert (run_dir / "output" / "design_doc.md").is_file()
+    assert (run_dir / "output" / "execution_doc.md").is_file()
+```
+
+- [ ] **Step 2: Run graph-driven E2E test**
+
+Run:
+
+```bash
+pytest backend/tests/test_graph_driven_e2e.py -q
+```
+
+Expected: PASS after Tasks 18 through 20 are complete.
+
+- [ ] **Step 3: Run full verification**
+
+Run:
+
+```bash
+pytest -q
+npm --prefix frontend test -- --run
+```
+
+Expected: PASS.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add backend/tests/test_graph_driven_e2e.py backend/app/graph/nodes.py backend/app/graph/edges.py
+git commit -m "test: add graph-driven MVP flow"
+```
+
+---
+
 ## Self-Review Checklist
 
 - Spec coverage:
@@ -2916,6 +3585,10 @@ git commit -m "test: add real MVP flow coverage"
   - Web UI stage board, timeline, and submission flow are covered in Tasks 7 and 16.
   - Final output generation is covered in Task 8 and exercised in Task 17.
   - Real MVP flow coverage is provided by Task 17.
+  - Human advance, skip, revert, and run detail are implemented in Task 18.
+  - LangGraph checkpoint gating is implemented in Task 19.
+  - Per-question clarification answers and clarified requirement inputs are implemented in Task 20.
+  - Graph-driven end-to-end coverage is implemented in Task 21.
 - Placeholder scan:
   - This plan avoids placeholder tokens and unspecified implementation steps.
   - Every code-writing step includes concrete file content or a concrete code block.
