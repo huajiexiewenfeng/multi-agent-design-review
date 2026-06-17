@@ -37,3 +37,21 @@ export async function submitAgentOutput(
   });
   return response.json();
 }
+
+export async function saveClarificationAnswers(runId: string, answers: Record<string, string>): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/clarification/answers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answers })
+  });
+  return response.json();
+}
+
+export async function saveClarifiedRequirement(runId: string, content: string): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/clarified-requirement`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+  });
+  return response.json();
+}

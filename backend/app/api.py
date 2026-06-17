@@ -7,6 +7,7 @@ from backend.app.models import Stage
 from backend.app.services.event_service import read_events
 from backend.app.services.file_service import write_text
 from backend.app.services.human_control_service import advance_stage, revert_stage, skip_agent
+from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
 from backend.app.services.run_service import create_run, get_run_dir, list_runs
 from backend.app.services.state_service import recompute_state
 from backend.app.services.workflow_service import import_from_inbox
@@ -32,6 +33,14 @@ class SkipAgentRequest(BaseModel):
 
 class RevertStageRequest(BaseModel):
     reason: str
+
+
+class ClarificationAnswersRequest(BaseModel):
+    answers: dict[str, str]
+
+
+class ClarifiedRequirementRequest(BaseModel):
+    content: str
 
 
 @router.get("/runs")
@@ -84,6 +93,22 @@ def skip_agent_endpoint(run_id: str, agent_id: str, request: SkipAgentRequest):
 def revert_run_endpoint(run_id: str, request: RevertStageRequest):
     try:
         return revert_stage(get_run_dir(RUNS_ROOT, run_id), request.reason).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.post("/runs/{run_id}/clarification/answers")
+def save_clarification_answers_endpoint(run_id: str, request: ClarificationAnswersRequest):
+    try:
+        return save_clarification_answers(get_run_dir(RUNS_ROOT, run_id), request.answers).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.post("/runs/{run_id}/clarified-requirement")
+def save_clarified_requirement_endpoint(run_id: str, request: ClarifiedRequirementRequest):
+    try:
+        return save_clarified_requirement(get_run_dir(RUNS_ROOT, run_id), request.content).model_dump(mode="json")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
 
