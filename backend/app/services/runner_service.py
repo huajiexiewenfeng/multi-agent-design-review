@@ -19,6 +19,24 @@ def get_runner(name: str):
     return runners[name]
 
 
+def _import_synthesis(run_dir: Path) -> None:
+    inbox_file = sorted((run_dir / "inbox" / "synthesizer").glob("*.md"))[0]
+    content = inbox_file.read_text(encoding="utf-8")
+    design_marker = "# Design Document"
+    execution_marker = "# Execution Document"
+    if design_marker not in content or execution_marker not in content:
+        raise ValueError("Synthesis output must contain Design and Execution document markers")
+    design_start = content.index(design_marker)
+    execution_start = content.index(execution_marker)
+    synthesizer_dir = run_dir / "agents" / "synthesizer"
+    synthesizer_dir.mkdir(parents=True, exist_ok=True)
+    (synthesizer_dir / "design_doc.v1.md").write_text(
+        content[design_start:execution_start].strip() + "\n",
+        encoding="utf-8",
+    )
+    (synthesizer_dir / "execution_doc.v1.md").write_text(content[execution_start:].strip() + "\n", encoding="utf-8")
+
+
 def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str = "mock") -> None:
     prompt_name = {
         Stage.CLARIFICATION: "clarification_prompt.md",
@@ -41,5 +59,7 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
         timeout_seconds=30,
         metadata={},
     )
-    if result.status == "succeeded":
+    if result.status == "succeeded" and stage == Stage.SYNTHESIS:
+        _import_synthesis(run_dir)
+    elif result.status == "succeeded":
         import_from_inbox(run_dir, agent_id, stage)
