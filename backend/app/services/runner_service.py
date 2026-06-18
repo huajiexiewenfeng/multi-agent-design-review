@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 from backend.app.models import Stage
 from backend.app.runners.file import FileRunner
 from backend.app.runners.manual import ManualRunner
@@ -13,10 +15,27 @@ def get_runner(name: str):
         "manual": ManualRunner(),
         "file": FileRunner(),
         "mock": MockRunner(),
+        "codex": ManualRunner(),
+        "claude-code": ManualRunner(),
+        "antigravity": ManualRunner(),
     }
     if name not in runners:
         raise ValueError(f"Unsupported runner: {name}")
     return runners[name]
+
+
+def _runner_name_for_agent(run_dir: Path, agent_id: str) -> str:
+    runners_file = run_dir / "runners.yaml"
+    if not runners_file.is_file():
+        return "mock"
+
+    raw = yaml.safe_load(runners_file.read_text(encoding="utf-8")) or {}
+    value = raw.get(agent_id, "mock")
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("runner", "mock"))
+    return "mock"
 
 
 def _import_synthesis(run_dir: Path) -> None:
@@ -37,7 +56,8 @@ def _import_synthesis(run_dir: Path) -> None:
     (synthesizer_dir / "execution_doc.v1.md").write_text(content[execution_start:].strip() + "\n", encoding="utf-8")
 
 
-def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str = "mock") -> None:
+def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str | None = None) -> None:
+    runner_name = runner_name or _runner_name_for_agent(run_dir, agent_id)
     prompt_name = {
         Stage.CLARIFICATION: "clarification_prompt.md",
         Stage.DRAFT_DESIGN: "draft_prompt.md",

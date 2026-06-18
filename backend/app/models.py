@@ -41,9 +41,18 @@ class Event(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class AgentProjection(BaseModel):
+    id: str
+    label: str
+    runner: str
+    llm_name: str
+    stages: list[Stage] = Field(default_factory=list)
+
+
 class RunProjection(BaseModel):
     run_id: str
     stage: Stage
     status: StageStatus
     missing_inputs: list[str] = Field(default_factory=list)
     current_versions: dict[str, str] = Field(default_factory=dict)
+    agents: list[AgentProjection] = Field(default_factory=list)

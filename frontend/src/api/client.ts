@@ -1,4 +1,4 @@
-import type { RunProjection, TimelineEvent } from "../types/run";
+import type { RunProjection, StageArtifact, TimelineEvent } from "../types/run";
 
 export async function listRuns(): Promise<RunProjection[]> {
   const response = await fetch("/api/runs");
@@ -19,8 +19,62 @@ export async function createRun(title: string, requirement: string): Promise<Run
   return response.json();
 }
 
+export async function getRun(runId: string): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}`);
+  return response.json();
+}
+
 export async function getEvents(runId: string): Promise<TimelineEvent[]> {
   const response = await fetch(`/api/runs/${runId}/events`);
+  return response.json();
+}
+
+export async function getStageArtifacts(runId: string, stage: string): Promise<StageArtifact[]> {
+  const response = await fetch(`/api/runs/${runId}/stages/${stage}/artifacts`);
+  if (!response.ok) {
+    throw new Error(`Failed to load stage artifacts: ${response.status}`);
+  }
+  const body = await response.json();
+  return body.artifacts;
+}
+
+export async function updateAgentConfig(
+  runId: string,
+  agentId: string,
+  runner: string,
+  llmName: string,
+): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/agents/${agentId}/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runner, llm_name: llmName })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update agent config: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function runGraphStep(runId: string, confirmed = true): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/graph/step`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmed })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to run graph step: ${response.status}`);
+  }
+  const body = await response.json();
+  return body.projection;
+}
+
+export async function finalizeRun(runId: string): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/finalize`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to finalize run: ${response.status}`);
+  }
   return response.json();
 }
 
@@ -35,6 +89,9 @@ export async function submitAgentOutput(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ stage, content })
   });
+  if (!response.ok) {
+    throw new Error(`Failed to submit agent output: ${response.status}`);
+  }
   return response.json();
 }
 
@@ -44,6 +101,9 @@ export async function saveClarificationAnswers(runId: string, answers: Record<st
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ answers })
   });
+  if (!response.ok) {
+    throw new Error(`Failed to save clarification answers: ${response.status}`);
+  }
   return response.json();
 }
 
@@ -53,5 +113,25 @@ export async function saveClarifiedRequirement(runId: string, content: string): 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content })
   });
+  if (!response.ok) {
+    throw new Error(`Failed to save clarified requirement: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function skipAgent(
+  runId: string,
+  agentId: string,
+  stage: string,
+  reason: string,
+): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/agents/${agentId}/skip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stage, reason })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to skip agent: ${response.status}`);
+  }
   return response.json();
 }

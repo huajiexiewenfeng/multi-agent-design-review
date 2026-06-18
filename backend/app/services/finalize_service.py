@@ -2,6 +2,10 @@ import json
 from pathlib import Path
 import shutil
 
+from backend.app.models import ActorType, Stage
+from backend.app.services.event_service import append_event
+from backend.app.services.file_service import run_lock
+
 
 def _latest_version(path: Path, pattern: str) -> Path:
     candidates = sorted(path.glob(pattern))
@@ -22,13 +26,23 @@ def _render_transcript(events_jsonl: Path) -> str:
 
 
 def finalize_run(run_dir: Path) -> None:
-    synthesizer_dir = run_dir / "agents" / "synthesizer"
-    output_dir = run_dir / "output"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    with run_lock(run_dir):
+        synthesizer_dir = run_dir / "agents" / "synthesizer"
+        output_dir = run_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    design_source = _latest_version(synthesizer_dir, "design_doc.v*.md")
-    execution_source = _latest_version(synthesizer_dir, "execution_doc.v*.md")
+        design_source = _latest_version(synthesizer_dir, "design_doc.v*.md")
+        execution_source = _latest_version(synthesizer_dir, "execution_doc.v*.md")
 
-    shutil.copyfile(design_source, output_dir / "design_doc.md")
-    shutil.copyfile(execution_source, output_dir / "execution_doc.md")
-    (output_dir / "transcript.md").write_text(_render_transcript(run_dir / "events.jsonl"), encoding="utf-8")
+        shutil.copyfile(design_source, output_dir / "design_doc.md")
+        shutil.copyfile(execution_source, output_dir / "execution_doc.md")
+        append_event(
+            run_dir,
+            Stage.SYNTHESIS,
+            "system",
+            ActorType.SYSTEM,
+            "finalized",
+            "Generated final design and execution documents",
+            "output/design_doc.md",
+        )
+        (output_dir / "transcript.md").write_text(_render_transcript(run_dir / "events.jsonl"), encoding="utf-8")

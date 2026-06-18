@@ -1,7 +1,38 @@
 from pathlib import Path
 
-from backend.app.models import RunProjection, Stage, StageStatus
+import yaml
+
+from backend.app.models import AgentProjection, RunProjection, Stage, StageStatus
 from backend.app.services.event_service import read_events
+
+
+AGENT_DEFINITIONS = {
+    "architect": {
+        "label": "Architect",
+        "stages": [Stage.CLARIFICATION, Stage.DRAFT_DESIGN, Stage.CROSS_REVIEW, Stage.REVISION],
+    },
+    "engineer": {
+        "label": "Engineer",
+        "stages": [Stage.CLARIFICATION, Stage.DRAFT_DESIGN, Stage.CROSS_REVIEW, Stage.REVISION],
+    },
+    "reviewer": {
+        "label": "Reviewer",
+        "stages": [Stage.CLARIFICATION, Stage.CROSS_REVIEW],
+    },
+    "synthesizer": {
+        "label": "Synthesizer",
+        "stages": [Stage.SYNTHESIS],
+    },
+}
+
+RUNNER_LLM_NAMES = {
+    "mock": "Mock runner",
+    "manual": "Manual CLI",
+    "file": "File drop",
+    "codex": "Codex CLI",
+    "claude-code": "Claude Code",
+    "antigravity": "Antigravity",
+}
 
 
 def _is_non_empty_file(path: Path) -> bool:
@@ -10,6 +41,41 @@ def _is_non_empty_file(path: Path) -> bool:
 
 def _has_version(run_dir: Path, pattern: str) -> bool:
     return bool(list(run_dir.glob(pattern)))
+
+
+def _read_runner_config(run_dir: Path) -> dict[str, dict[str, str]]:
+    runners_file = run_dir / "runners.yaml"
+    if not runners_file.is_file():
+        return {}
+
+    raw = yaml.safe_load(runners_file.read_text(encoding="utf-8")) or {}
+    runners: dict[str, dict[str, str]] = {}
+    for agent_id, value in raw.items():
+        if isinstance(value, str):
+            runners[agent_id] = {"runner": value, "llm_name": RUNNER_LLM_NAMES.get(value, value)}
+        elif isinstance(value, dict):
+            runner = str(value.get("runner", "mock"))
+            llm_name = str(value.get("llm_name") or RUNNER_LLM_NAMES.get(runner, runner))
+            runners[agent_id] = {"runner": runner, "llm_name": llm_name}
+    return runners
+
+
+def _agents(run_dir: Path) -> list[AgentProjection]:
+    runners = _read_runner_config(run_dir)
+    agents: list[AgentProjection] = []
+    for agent_id, definition in AGENT_DEFINITIONS.items():
+        config = runners.get(agent_id, {"runner": "mock", "llm_name": "Mock runner"})
+        runner = config["runner"]
+        agents.append(
+            AgentProjection(
+                id=agent_id,
+                label=str(definition["label"]),
+                runner=runner,
+                llm_name=config["llm_name"],
+                stages=list(definition["stages"]),
+            )
+        )
+    return agents
 
 
 def _skipped(events: list[dict[str, object]], stage: Stage, agent: str) -> bool:
@@ -48,6 +114,7 @@ def _projection(run_dir: Path, stage: Stage, missing: list[str]) -> RunProjectio
         stage=stage,
         status=StageStatus.READY_TO_ADVANCE if not missing else StageStatus.WAITING_INPUT,
         missing_inputs=missing,
+        agents=_agents(run_dir),
     )
 
 

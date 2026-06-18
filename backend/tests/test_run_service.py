@@ -13,3 +13,11 @@ def test_create_run_writes_required_files(tmp_path: Path) -> None:
     assert (run_dir / "input" / "requirement.md").read_text(encoding="utf-8").startswith("# Requirement")
     assert (run_dir / "inbox" / "architect").is_dir()
     assert projection.status.value == "waiting_input"
+
+
+def test_create_run_projects_agent_llm_names(tmp_path: Path) -> None:
+    projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild MVP")
+
+    assert projection.agents[0].id == "architect"
+    assert projection.agents[0].runner == "mock"
+    assert projection.agents[0].llm_name == "Mock runner"

@@ -4,8 +4,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.app.models import Stage
+from backend.app.services.agent_config_service import update_agent_config
+from backend.app.services.artifact_service import get_stage_artifacts
 from backend.app.services.event_service import read_events
 from backend.app.services.file_service import write_text
+from backend.app.services.finalize_service import finalize_run
+from backend.app.services.graph_service import run_graph_step
 from backend.app.services.human_control_service import advance_stage, revert_stage, skip_agent
 from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
 from backend.app.services.run_service import create_run, get_run_dir, list_runs
@@ -43,6 +47,15 @@ class ClarifiedRequirementRequest(BaseModel):
     content: str
 
 
+class AgentConfigRequest(BaseModel):
+    runner: str
+    llm_name: str
+
+
+class GraphStepRequest(BaseModel):
+    confirmed: bool = True
+
+
 @router.get("/runs")
 def list_runs_endpoint():
     return list_runs(RUNS_ROOT)
@@ -67,6 +80,14 @@ def get_run_endpoint(run_id: str):
 def get_events_endpoint(run_id: str):
     try:
         return read_events(get_run_dir(RUNS_ROOT, run_id))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.get("/runs/{run_id}/stages/{stage}/artifacts")
+def get_stage_artifacts_endpoint(run_id: str, stage: Stage):
+    try:
+        return get_stage_artifacts(get_run_dir(RUNS_ROOT, run_id), stage)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
 
@@ -109,6 +130,38 @@ def save_clarification_answers_endpoint(run_id: str, request: ClarificationAnswe
 def save_clarified_requirement_endpoint(run_id: str, request: ClarifiedRequirementRequest):
     try:
         return save_clarified_requirement(get_run_dir(RUNS_ROOT, run_id), request.content).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.put("/runs/{run_id}/agents/{agent_id}/config")
+def update_agent_config_endpoint(run_id: str, agent_id: str, request: AgentConfigRequest):
+    try:
+        return update_agent_config(get_run_dir(RUNS_ROOT, run_id), agent_id, request.runner, request.llm_name).model_dump(
+            mode="json"
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/runs/{run_id}/graph/step")
+def run_graph_step_endpoint(run_id: str, request: GraphStepRequest):
+    try:
+        return run_graph_step(RUNS_ROOT, run_id, request.confirmed)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/runs/{run_id}/finalize")
+def finalize_run_endpoint(run_id: str):
+    try:
+        run_dir = get_run_dir(RUNS_ROOT, run_id)
+        finalize_run(run_dir)
+        return recompute_state(run_dir).model_dump(mode="json")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
 
