@@ -4,12 +4,13 @@ import {
   finalizeRun,
   getEvents,
   getRun,
+  getGraphJob,
   getStageArtifacts,
   listRuns,
-  runGraphStep,
   saveClarificationAnswers,
   saveClarifiedRequirement,
   skipAgent,
+  startGraphStepJob,
   submitAgentOutput,
   updateAgentConfig
 } from "../api/client";
@@ -18,7 +19,7 @@ import { RunControls } from "../components/RunControls";
 import { StageBoard } from "../components/StageBoard";
 import { StageDetailPanel } from "../components/StageDetailPanel";
 import { Timeline } from "../components/Timeline";
-import type { RunProjection, StageArtifact, TimelineEvent } from "../types/run";
+import type { GraphJob, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
 
 export function RunListPage() {
   const [runs, setRuns] = useState<RunProjection[]>([]);
@@ -29,6 +30,7 @@ export function RunListPage() {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [selectedStage, setSelectedStage] = useState("requirement");
   const [stageArtifacts, setStageArtifacts] = useState<StageArtifact[]>([]);
+  const [activeJob, setActiveJob] = useState<GraphJob | null>(null);
 
   useEffect(() => {
     listRuns().then((loadedRuns) => {
@@ -85,13 +87,35 @@ export function RunListPage() {
     if (!selectedRun) {
       return;
     }
-    const updated = await runGraphStep(selectedRun.run_id, true);
-    setSelectedRun(updated);
-    setSelectedStage(updated.stage);
-    setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
-    setEvents(await getEvents(updated.run_id));
-    setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
-    setStatusMessage("Graph step completed");
+    const job = await startGraphStepJob(selectedRun.run_id, true);
+    setActiveJob(job);
+    setStatusMessage("Graph job started");
+    void pollGraphJob(selectedRun.run_id, job.id);
+  }
+
+  async function pollGraphJob(runId: string, jobId: string) {
+    for (;;) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      const job = await getGraphJob(runId, jobId);
+      setActiveJob(job);
+      if (job.status === "queued" || job.status === "running") {
+        setStatusMessage(job.message);
+        continue;
+      }
+      if (job.status === "failed") {
+        setStatusMessage(job.error ? `Graph job failed: ${job.error}` : "Graph job failed");
+        return;
+      }
+      const updated = job.projection ?? (await getRun(runId));
+      setSelectedRun(updated);
+      setSelectedStage(updated.stage);
+      setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
+      setEvents(await getEvents(updated.run_id));
+      setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
+      setStatusMessage("Graph step completed");
+      setActiveJob(null);
+      return;
+    }
   }
 
   async function handleFinalize() {
@@ -197,6 +221,7 @@ export function RunListPage() {
         <section className="run-workspace">
           <RunControls
             disabled={!selectedRun}
+            isRunning={activeJob?.status === "queued" || activeJob?.status === "running"}
             canFinalize={selectedRun?.stage === "synthesis" && (selectedRun?.missing_inputs.length ?? 0) === 0}
             onRunStep={handleRunGraphStep}
             onFinalize={handleFinalize}

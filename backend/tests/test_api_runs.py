@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import time
 
 import backend.app.api as api_module
 from backend.app.main import app
@@ -65,3 +66,25 @@ def test_graph_step_merges_clarification_questions_when_outputs_are_ready(tmp_pa
     run_dir = tmp_path / created["run_id"]
     assert (run_dir / "input" / "clarification_questions.json").is_file()
     assert (run_dir / "input" / "clarification_questions.md").is_file()
+
+
+def test_graph_step_job_runs_in_background(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(f"/api/runs/{created['run_id']}/graph/step/jobs", json={"confirmed": True})
+
+    assert response.status_code == 200
+    job = response.json()
+    assert job["run_id"] == created["run_id"]
+    assert job["status"] in {"queued", "running", "succeeded"}
+
+    for _ in range(20):
+        job = client.get(f"/api/runs/{created['run_id']}/jobs/{job['id']}").json()
+        if job["status"] == "succeeded":
+            break
+        time.sleep(0.05)
+
+    assert job["status"] == "succeeded"
+    assert job["projection"]["run_id"] == created["run_id"]

@@ -24,4 +24,16 @@ describe("RunControls", () => {
 
     expect(onFinalize).toHaveBeenCalledOnce();
   });
+
+  it("shows running state while a graph job is active", () => {
+    const onRunStep = vi.fn();
+    const onFinalize = vi.fn();
+    render(<RunControls disabled={false} isRunning onRunStep={onRunStep} onFinalize={onFinalize} canFinalize />);
+
+    fireEvent.click(screen.getByText("Running..."));
+    fireEvent.click(screen.getByText("Finalize Output"));
+
+    expect(onRunStep).not.toHaveBeenCalled();
+    expect(onFinalize).not.toHaveBeenCalled();
+  });
 });

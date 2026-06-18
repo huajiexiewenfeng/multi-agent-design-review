@@ -12,6 +12,7 @@ from backend.app.services.finalize_service import finalize_run
 from backend.app.services.graph_service import run_graph_step
 from backend.app.services.human_control_service import advance_stage, revert_stage, skip_agent
 from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
+from backend.app.services.job_service import get_job, start_graph_step_job
 from backend.app.services.run_service import create_run, get_run_dir, list_runs
 from backend.app.services.state_service import recompute_state
 from backend.app.services.workflow_service import import_from_inbox
@@ -154,6 +155,26 @@ def run_graph_step_endpoint(run_id: str, request: GraphStepRequest):
         raise HTTPException(status_code=404, detail="Run not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/runs/{run_id}/graph/step/jobs")
+def start_graph_step_job_endpoint(run_id: str, request: GraphStepRequest):
+    try:
+        get_run_dir(RUNS_ROOT, run_id)
+        return start_graph_step_job(RUNS_ROOT, run_id, request.confirmed).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.get("/runs/{run_id}/jobs/{job_id}")
+def get_job_endpoint(run_id: str, job_id: str):
+    try:
+        job = get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    if job.run_id != run_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.model_dump(mode="json")
 
 
 @router.post("/runs/{run_id}/finalize")

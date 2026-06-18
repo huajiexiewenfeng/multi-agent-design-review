@@ -33,3 +33,15 @@ export type StageArtifact = {
   agent_id: string | null;
   content: string;
 };
+
+export type GraphJob = {
+  id: string;
+  run_id: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  message: string;
+  projection?: RunProjection | null;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+};

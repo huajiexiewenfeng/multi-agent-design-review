@@ -1,4 +1,4 @@
-import type { RunProjection, StageArtifact, TimelineEvent } from "../types/run";
+import type { GraphJob, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
 
 export async function listRuns(): Promise<RunProjection[]> {
   const response = await fetch("/api/runs");
@@ -66,6 +66,26 @@ export async function runGraphStep(runId: string, confirmed = true): Promise<Run
   }
   const body = await response.json();
   return body.projection;
+}
+
+export async function startGraphStepJob(runId: string, confirmed = true): Promise<GraphJob> {
+  const response = await fetch(`/api/runs/${runId}/graph/step/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmed })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to start graph job: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getGraphJob(runId: string, jobId: string): Promise<GraphJob> {
+  const response = await fetch(`/api/runs/${runId}/jobs/${jobId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to load graph job: ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function finalizeRun(runId: string): Promise<RunProjection> {

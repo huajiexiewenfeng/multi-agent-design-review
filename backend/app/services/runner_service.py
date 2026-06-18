@@ -86,7 +86,7 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
         prompt_file=prompt_file,
         inbox_dir=run_dir / "inbox" / agent_id,
         runner_log_dir=run_dir / "runner_logs" / agent_id,
-        timeout_seconds=30,
+        timeout_seconds=int(os.environ.get("MADR_RUNNER_TIMEOUT_SECONDS", "180")),
         metadata={},
     )
     if result.status == "succeeded" and stage == Stage.SYNTHESIS:
