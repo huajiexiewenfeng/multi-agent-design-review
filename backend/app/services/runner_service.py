@@ -4,10 +4,11 @@ import os
 import yaml
 
 from backend.app.runners.antigravity import AntigravityRunner
-from backend.app.models import Stage
+from backend.app.models import ActorType, Stage
 from backend.app.runners.file import FileRunner
 from backend.app.runners.manual import ManualRunner
 from backend.app.runners.mock import MockRunner
+from backend.app.services.event_service import append_event
 from backend.app.services.prompt_service import render_prompt
 from backend.app.services.runner_registry_service import resolve_runner_command
 from backend.app.services.workflow_service import import_from_inbox
@@ -78,6 +79,12 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
     prompt_file = run_dir / "agents" / agent_id / prompt_name
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text(render_prompt(stage, agent_id, run_dir), encoding="utf-8")
+    if _has_stage_inbox_markdown(run_dir, agent_id, stage):
+        if stage == Stage.SYNTHESIS:
+            _import_synthesis(run_dir)
+        else:
+            import_from_inbox(run_dir, agent_id, stage)
+        return
     runner = get_runner(runner_name)
     result = runner.run(
         run_id=run_dir.name,
@@ -89,7 +96,46 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
         timeout_seconds=int(os.environ.get("MADR_RUNNER_TIMEOUT_SECONDS", "180")),
         metadata={},
     )
+    if result.status != "succeeded":
+        event_type = "runner_waiting" if result.status == "waiting_input" else "runner_failed"
+        append_event(
+            run_dir,
+            stage,
+            agent_id,
+            ActorType.AGENT,
+            event_type,
+            result.error_message or f"{runner_name} runner failed",
+            _first_runner_log(run_dir, agent_id),
+            {
+                "runner": runner_name,
+                "status": result.status,
+                "exit_code": result.exit_code,
+                "produced_files": result.produced_files,
+            },
+        )
+        return
     if result.status == "succeeded" and stage == Stage.SYNTHESIS:
         _import_synthesis(run_dir)
     elif result.status == "succeeded":
         import_from_inbox(run_dir, agent_id, stage)
+
+
+def _first_runner_log(run_dir: Path, agent_id: str) -> str | None:
+    log_dir = run_dir / "runner_logs" / agent_id
+    for path in sorted(log_dir.glob("*.log")):
+        return path.relative_to(run_dir).as_posix()
+    return None
+
+
+def _has_stage_inbox_markdown(run_dir: Path, agent_id: str, stage: Stage) -> bool:
+    stage_hints = {
+        Stage.CLARIFICATION: ["clarification"],
+        Stage.DRAFT_DESIGN: ["draft"],
+        Stage.CROSS_REVIEW: ["review"],
+        Stage.REVISION: ["revision"],
+        Stage.SYNTHESIS: ["synthesis"],
+    }[stage]
+    return any(
+        any(hint in path.stem for hint in stage_hints) or path.stem.endswith("_manual")
+        for path in (run_dir / "inbox" / agent_id).glob("*.md")
+    )

@@ -58,6 +58,7 @@ class AntigravityRunner:
             )
             output_stable_for = 0
             last_size = -1
+            launcher_exited_for = 0
             for _ in range(timeout_seconds):
                 if output_file.is_file() and output_file.stat().st_size > 0:
                     current_size = output_file.stat().st_size
@@ -67,6 +68,10 @@ class AntigravityRunner:
                         output_stable_for = 0
                         last_size = current_size
                     if output_stable_for >= 2:
+                        break
+                elif process.poll() is not None:
+                    launcher_exited_for += 1
+                    if launcher_exited_for >= 5:
                         break
                 time.sleep(1)
 
@@ -87,14 +92,17 @@ class AntigravityRunner:
                     stderr = "Process pipes did not close after process exit."
 
             produced_files = [output_file.name] if output_file.is_file() else []
-            status = "succeeded" if produced_files else "failed"
+            status = "succeeded" if produced_files else "waiting_input"
             log = (
                 f"command: {command}\n"
                 f"exit_code: {process.returncode}\n"
                 f"output_file: {output_file.resolve()}\n\n"
+                f"status: {status}\n"
                 f"stdout:\n{stdout}\n\n"
                 f"stderr:\n{stderr}\n"
             )
+            if status == "waiting_input":
+                log += "\nwaiting for Antigravity to write the output file asynchronously.\n"
             (runner_log_dir / "antigravity.log").write_text(log, encoding="utf-8")
             finished = datetime.now(timezone.utc).isoformat()
             return RunnerResult(
@@ -103,7 +111,9 @@ class AntigravityRunner:
                 produced_files=produced_files,
                 stdout_summary=stdout[:500],
                 stderr_summary=stderr[:500],
-                error_message=None if status == "succeeded" else "Antigravity did not write the output file",
+                error_message=None
+                if status == "succeeded"
+                else "Antigravity launched; waiting for output file",
                 started_at=started,
                 finished_at=finished,
             )
