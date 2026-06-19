@@ -1,14 +1,25 @@
 from datetime import datetime
+import os
 from pathlib import Path
 
-from backend.app.runners.command import CommandRunner
 from backend.app.services.runner_registry_service import resolve_runner_command
+from backend.app.services.runner_service import get_runner
+
+
+def _read_log_content(log_dir: Path) -> str:
+    command_log = log_dir / "command.log"
+    if command_log.is_file():
+        return command_log.read_text(encoding="utf-8", errors="replace")
+    log_parts = []
+    for path in sorted(log_dir.glob("*.log")):
+        log_parts.append(f"## {path.name}\n{path.read_text(encoding='utf-8', errors='replace')}")
+    return "\n\n".join(log_parts)
 
 
 def run_runner_smoke_test(
     runner_id: str,
     runs_root: Path,
-    timeout_seconds: int = 60,
+    timeout_seconds: int | None = None,
 ) -> dict[str, object]:
     command = resolve_runner_command(runner_id)
     if not command:
@@ -33,26 +44,32 @@ def run_runner_smoke_test(
         encoding="utf-8",
     )
 
-    result = CommandRunner(command).run(
+    runner = get_runner(runner_id)
+    result = runner.run(
         run_id=smoke_dir.name,
         agent_id="smoke",
         stage="smoke",
         prompt_file=prompt_file,
         inbox_dir=inbox_dir,
         runner_log_dir=log_dir,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=timeout_seconds or int(os.environ.get("MADR_RUNNER_TIMEOUT_SECONDS", "180")),
         metadata={},
     )
     output_file = inbox_dir / "smoke_result.md"
-    log_file = log_dir / "command.log"
+    output_content = (
+        output_file.read_text(encoding="utf-8", errors="replace").strip() if output_file.is_file() else ""
+    )
+    status = result.status
+    error_message = result.error_message
+    if "MADR_RUNNER_SMOKE_OK" not in output_content:
+        status = "failed"
+        error_message = "Smoke output did not contain MADR_RUNNER_SMOKE_OK"
     return {
         "runner_id": runner_id,
-        "status": result.status,
+        "status": status,
         "exit_code": result.exit_code,
-        "output_content": output_file.read_text(encoding="utf-8", errors="replace").strip()
-        if output_file.is_file()
-        else "",
-        "log_content": log_file.read_text(encoding="utf-8", errors="replace") if log_file.is_file() else "",
-        "error_message": result.error_message,
+        "output_content": output_content,
+        "log_content": _read_log_content(log_dir),
+        "error_message": error_message,
         "smoke_dir": str(smoke_dir.relative_to(runs_root)),
     }

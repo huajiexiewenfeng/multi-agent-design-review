@@ -66,4 +66,38 @@ describe("RunnerHealthPanel", () => {
     expect(screen.getByText("succeeded")).toBeTruthy();
     expect(screen.getByText("MADR_RUNNER_SMOKE_OK")).toBeTruthy();
   });
+
+  it("shows a running smoke job before a result exists", () => {
+    render(
+      <RunnerHealthPanel
+        runners={[
+          {
+            id: "codex",
+            label: "Codex CLI",
+            available: true,
+            configured: true,
+            executable: "C:/npm/codex.cmd",
+            version: "codex-cli 0.141.0",
+            env: "MADR_CODEX_COMMAND",
+            command_template: "codex {prompt_file}",
+            error: null
+          }
+        ]}
+        smokeJobs={{
+          codex: {
+            id: "smoke_job_1",
+            runner_id: "codex",
+            status: "running",
+            message: "Runner smoke test running",
+            result: null,
+            error: null,
+            created_at: "2026-06-19T00:00:00+00:00"
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByText("running")).toBeTruthy();
+    expect(screen.getByText("Runner smoke test running")).toBeTruthy();
+  });
 });

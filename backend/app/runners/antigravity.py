@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-import os
 from pathlib import Path
 import subprocess
 import time
@@ -7,7 +6,7 @@ import time
 from backend.app.runners.base import RunnerResult
 
 
-class CommandRunner:
+class AntigravityRunner:
     def __init__(self, command_template: str) -> None:
         self.command_template = command_template
 
@@ -26,11 +25,24 @@ class CommandRunner:
         inbox_dir.mkdir(parents=True, exist_ok=True)
         runner_log_dir.mkdir(parents=True, exist_ok=True)
         output_file = inbox_dir / f"{stage}_result.md"
+        instruction_file = runner_log_dir / "antigravity_instruction.md"
+        original_prompt = prompt_file.read_text(encoding="utf-8", errors="replace")
+        instruction_file.write_text(
+            "You are running inside an automated multi-agent design review workflow.\n"
+            "Write your final answer to the exact file path below and then stop.\n"
+            f"OUTPUT_FILE: {output_file.resolve()}\n\n"
+            "Create parent directories if needed. Do not ask the human to copy anything.\n"
+            "Do not write analysis outside the output file.\n\n"
+            "Original prompt:\n"
+            f"{original_prompt}\n",
+            encoding="utf-8",
+        )
         command = self.command_template.format(
             run_id=run_id,
             agent_id=agent_id,
             stage=stage,
             prompt_file=str(prompt_file.resolve()),
+            instruction_file=str(instruction_file.resolve()),
             output_file=str(output_file.resolve()),
         )
         try:
@@ -46,7 +58,6 @@ class CommandRunner:
             )
             output_stable_for = 0
             last_size = -1
-            captured_output: str | None = None
             for _ in range(timeout_seconds):
                 if output_file.is_file() and output_file.stat().st_size > 0:
                     current_size = output_file.stat().st_size
@@ -56,20 +67,17 @@ class CommandRunner:
                         output_stable_for = 0
                         last_size = current_size
                     if output_stable_for >= 2:
-                        captured_output = output_file.read_text(encoding="utf-8")
                         break
-                if process.poll() is not None:
-                    break
                 time.sleep(1)
-            timed_out = process.poll() is None
-            if timed_out:
+
+            if process.poll() is None:
                 process.terminate()
                 try:
                     stdout, stderr = process.communicate(timeout=5)
                 except subprocess.TimeoutExpired:
                     process.kill()
                     stdout = ""
-                    stderr = "Process was terminated after output file became stable."
+                    stderr = "Process was terminated after waiting for output file."
             else:
                 try:
                     stdout, stderr = process.communicate(timeout=5)
@@ -77,37 +85,31 @@ class CommandRunner:
                     process.kill()
                     stdout = ""
                     stderr = "Process pipes did not close after process exit."
+
             produced_files = [output_file.name] if output_file.is_file() else []
-            if captured_output and not output_file.is_file():
-                output_file.write_text(captured_output, encoding="utf-8")
-                produced_files = [output_file.name]
-            exit_code = process.returncode
-            if stdout.strip() and not output_file.is_file():
-                output_file.write_text(stdout, encoding="utf-8")
-                produced_files = [output_file.name]
-            status = "succeeded" if produced_files and (exit_code in (0, None) or timed_out) else "failed"
+            status = "succeeded" if produced_files else "failed"
             log = (
                 f"command: {command}\n"
-                f"exit_code: {exit_code}\n"
-                f"terminated_after_output: {timed_out and bool(produced_files)}\n\n"
+                f"exit_code: {process.returncode}\n"
+                f"output_file: {output_file.resolve()}\n\n"
                 f"stdout:\n{stdout}\n\n"
                 f"stderr:\n{stderr}\n"
             )
-            (runner_log_dir / "command.log").write_text(log, encoding="utf-8")
+            (runner_log_dir / "antigravity.log").write_text(log, encoding="utf-8")
             finished = datetime.now(timezone.utc).isoformat()
             return RunnerResult(
                 status=status,
-                exit_code=exit_code,
+                exit_code=process.returncode,
                 produced_files=produced_files,
                 stdout_summary=stdout[:500],
                 stderr_summary=stderr[:500],
-                error_message=None if status == "succeeded" else "Command runner did not produce markdown output",
+                error_message=None if status == "succeeded" else "Antigravity did not write the output file",
                 started_at=started,
                 finished_at=finished,
             )
         except Exception as exc:
             finished = datetime.now(timezone.utc).isoformat()
-            (runner_log_dir / "command.log").write_text(f"command: {command}\nerror: {exc}\n", encoding="utf-8")
+            (runner_log_dir / "antigravity.log").write_text(f"command: {command}\nerror: {exc}\n", encoding="utf-8")
             return RunnerResult(
                 status="failed",
                 exit_code=None,

@@ -2,6 +2,7 @@ import type {
   GraphJob,
   RunnerHealth,
   RunnerLog,
+  RunnerSmokeJob,
   RunnerSmokeResult,
   RunProjection,
   StageArtifact,
@@ -25,6 +26,22 @@ export async function runRunnerSmokeTest(runnerId: string): Promise<RunnerSmokeR
   const response = await fetch(`/api/runners/${runnerId}/smoke-test`, { method: "POST" });
   if (!response.ok) {
     throw new Error(`Failed to run runner smoke test: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function startRunnerSmokeJob(runnerId: string): Promise<RunnerSmokeJob> {
+  const response = await fetch(`/api/runners/${runnerId}/smoke-test/jobs`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`Failed to start runner smoke job: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getRunnerSmokeJob(runnerId: string, jobId: string): Promise<RunnerSmokeJob> {
+  const response = await fetch(`/api/runners/${runnerId}/smoke-test/jobs/${jobId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to load runner smoke job: ${response.status}`);
   }
   return response.json();
 }

@@ -3,6 +3,7 @@ import os
 
 import yaml
 
+from backend.app.runners.antigravity import AntigravityRunner
 from backend.app.models import Stage
 from backend.app.runners.file import FileRunner
 from backend.app.runners.manual import ManualRunner
@@ -15,6 +16,8 @@ from backend.app.runners.command import CommandRunner
 
 def get_runner(name: str):
     command = resolve_runner_command(name)
+    if name == "antigravity" and command:
+        return AntigravityRunner(command)
     if command:
         return CommandRunner(command)
 

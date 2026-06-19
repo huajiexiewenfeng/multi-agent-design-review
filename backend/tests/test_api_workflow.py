@@ -82,6 +82,39 @@ def test_runner_smoke_test_endpoint_returns_result(tmp_path, monkeypatch) -> Non
     assert response.json()["status"] == "succeeded"
 
 
+def test_runner_smoke_job_endpoints(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+
+    class FakeJob:
+        id = "smoke_job_1"
+        runner_id = "codex"
+        status = "queued"
+        message = "Runner smoke test queued"
+
+        def model_dump(self, mode="json"):
+            return {
+                "id": self.id,
+                "runner_id": self.runner_id,
+                "status": self.status,
+                "message": self.message,
+                "result": None,
+                "error": None,
+                "created_at": "2026-06-19T00:00:00+00:00",
+            }
+
+    monkeypatch.setattr(api_module, "start_runner_smoke_job", lambda runs_root, runner_id: FakeJob())
+    monkeypatch.setattr(api_module, "get_runner_smoke_job", lambda job_id: FakeJob())
+    client = TestClient(app)
+
+    created = client.post("/api/runners/codex/smoke-test/jobs")
+    fetched = client.get("/api/runners/codex/smoke-test/jobs/smoke_job_1")
+
+    assert created.status_code == 200
+    assert created.json()["id"] == "smoke_job_1"
+    assert fetched.status_code == 200
+    assert fetched.json()["runner_id"] == "codex"
+
+
 def test_finalize_run_endpoint_writes_output_docs_and_event(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
     client = TestClient(app)

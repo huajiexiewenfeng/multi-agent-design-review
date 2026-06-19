@@ -1,8 +1,9 @@
-import type { RunnerHealth, RunnerSmokeResult } from "../types/run";
+import type { RunnerHealth, RunnerSmokeJob, RunnerSmokeResult } from "../types/run";
 
 type RunnerHealthPanelProps = {
   runners: RunnerHealth[];
   smokeResults?: Record<string, RunnerSmokeResult>;
+  smokeJobs?: Record<string, RunnerSmokeJob>;
   testingRunnerId?: string | null;
   onSmokeTest?: (runnerId: string) => void;
 };
@@ -10,6 +11,7 @@ type RunnerHealthPanelProps = {
 export function RunnerHealthPanel({
   runners,
   smokeResults = {},
+  smokeJobs = {},
   testingRunnerId = null,
   onSmokeTest
 }: RunnerHealthPanelProps) {
@@ -42,6 +44,12 @@ export function RunnerHealthPanel({
               <div className="runner-smoke-result" data-status={smokeResults[runner.id].status}>
                 <strong>{smokeResults[runner.id].status}</strong>
                 <span>{smokeResults[runner.id].output_content || smokeResults[runner.id].error_message}</span>
+              </div>
+            ) : null}
+            {!smokeResults[runner.id] && smokeJobs[runner.id] ? (
+              <div className="runner-smoke-result" data-status={smokeJobs[runner.id].status}>
+                <strong>{smokeJobs[runner.id].status}</strong>
+                <span>{smokeJobs[runner.id].message}</span>
               </div>
             ) : null}
           </article>

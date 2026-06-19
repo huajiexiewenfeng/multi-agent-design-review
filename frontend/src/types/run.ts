@@ -73,3 +73,15 @@ export type RunnerSmokeResult = {
   error_message: string | null;
   smoke_dir: string;
 };
+
+export type RunnerSmokeJob = {
+  id: string;
+  runner_id: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  message: string;
+  result?: RunnerSmokeResult | null;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+};

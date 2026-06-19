@@ -16,6 +16,7 @@ from backend.app.services.job_service import get_job, start_graph_step_job
 from backend.app.services.run_service import create_run, get_run_dir, list_runs
 from backend.app.services.runner_log_service import get_runner_logs
 from backend.app.services.runner_registry_service import get_runner_health
+from backend.app.services.runner_smoke_job_service import get_runner_smoke_job, start_runner_smoke_job
 from backend.app.services.runner_smoke_service import run_runner_smoke_test
 from backend.app.services.state_service import recompute_state
 from backend.app.services.workflow_service import import_from_inbox
@@ -73,6 +74,22 @@ def get_runners_endpoint():
 @router.post("/runners/{runner_id}/smoke-test")
 def run_runner_smoke_test_endpoint(runner_id: str):
     return run_runner_smoke_test(runner_id, RUNS_ROOT)
+
+
+@router.post("/runners/{runner_id}/smoke-test/jobs")
+def start_runner_smoke_job_endpoint(runner_id: str):
+    return start_runner_smoke_job(RUNS_ROOT, runner_id).model_dump(mode="json")
+
+
+@router.get("/runners/{runner_id}/smoke-test/jobs/{job_id}")
+def get_runner_smoke_job_endpoint(runner_id: str, job_id: str):
+    try:
+        job = get_runner_smoke_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    if job.runner_id != runner_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.model_dump(mode="json")
 
 
 @router.post("/runs")

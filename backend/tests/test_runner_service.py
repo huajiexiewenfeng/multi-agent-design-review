@@ -104,3 +104,33 @@ def test_command_runner_returns_when_output_file_is_stable(tmp_path: Path) -> No
     assert result.status == "succeeded"
     assert result.produced_files == ["clarification_result.md"]
     assert "terminated_after_output: True" in (logs / "command.log").read_text(encoding="utf-8")
+
+
+def test_command_runner_replaces_undecodable_process_output(tmp_path: Path) -> None:
+    prompt = tmp_path / "runs" / "run_001" / "agents" / "architect" / "prompt.md"
+    prompt.parent.mkdir(parents=True)
+    inbox = tmp_path / "runs" / "run_001" / "inbox" / "architect"
+    logs = tmp_path / "runs" / "run_001" / "runner_logs" / "architect"
+    prompt.write_text("## Prompt\nCreate questions", encoding="utf-8")
+    script = tmp_path / "emit_invalid_bytes.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stdout.write('## Clarification Questions\\n\\n1. [required] Still works?')\n"
+        "sys.stderr.buffer.write(b'\\xae')\n",
+        encoding="utf-8",
+    )
+
+    result = CommandRunner(f'"{sys.executable}" "{script}" "{{prompt_file}}"').run(
+        run_id="run_001",
+        agent_id="architect",
+        stage="clarification",
+        prompt_file=prompt,
+        inbox_dir=inbox,
+        runner_log_dir=logs,
+        timeout_seconds=30,
+        metadata={},
+    )
+
+    assert result.status == "succeeded"
+    assert "Still works" in (inbox / "clarification_result.md").read_text(encoding="utf-8")
+    assert "stderr:" in (logs / "command.log").read_text(encoding="utf-8")

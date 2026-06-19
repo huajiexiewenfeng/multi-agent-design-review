@@ -7,13 +7,14 @@ import {
   getGraphJob,
   getRunners,
   getRunnerLogs,
+  getRunnerSmokeJob,
   getStageArtifacts,
   listRuns,
-  runRunnerSmokeTest,
   saveClarificationAnswers,
   saveClarifiedRequirement,
   skipAgent,
   startGraphStepJob,
+  startRunnerSmokeJob,
   submitAgentOutput,
   updateAgentConfig
 } from "../api/client";
@@ -28,6 +29,7 @@ import type {
   GraphJob,
   RunnerHealth,
   RunnerLog,
+  RunnerSmokeJob,
   RunnerSmokeResult,
   RunProjection,
   StageArtifact,
@@ -47,6 +49,7 @@ export function RunListPage() {
   const [runnerHealth, setRunnerHealth] = useState<RunnerHealth[]>([]);
   const [runnerLogs, setRunnerLogs] = useState<RunnerLog[]>([]);
   const [runnerSmokeResults, setRunnerSmokeResults] = useState<Record<string, RunnerSmokeResult>>({});
+  const [runnerSmokeJobs, setRunnerSmokeJobs] = useState<Record<string, RunnerSmokeJob>>({});
   const [testingRunnerId, setTestingRunnerId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -107,13 +110,27 @@ export function RunListPage() {
 
   async function handleRunnerSmokeTest(runnerId: string) {
     setTestingRunnerId(runnerId);
-    setStatusMessage(`Testing ${runnerId}`);
-    try {
-      const result = await runRunnerSmokeTest(runnerId);
-      setRunnerSmokeResults((current) => ({ ...current, [runnerId]: result }));
-      setStatusMessage(`${runnerId} smoke test ${result.status}`);
-    } finally {
+    const job = await startRunnerSmokeJob(runnerId);
+    setRunnerSmokeJobs((current) => ({ ...current, [runnerId]: job }));
+    setStatusMessage(`${runnerId} smoke test queued`);
+    void pollRunnerSmokeJob(runnerId, job.id);
+  }
+
+  async function pollRunnerSmokeJob(runnerId: string, jobId: string) {
+    for (;;) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      const job = await getRunnerSmokeJob(runnerId, jobId);
+      setRunnerSmokeJobs((current) => ({ ...current, [runnerId]: job }));
+      if (job.status === "queued" || job.status === "running") {
+        setStatusMessage(job.message);
+        continue;
+      }
+      if (job.result) {
+        setRunnerSmokeResults((current) => ({ ...current, [runnerId]: job.result as RunnerSmokeResult }));
+      }
       setTestingRunnerId(null);
+      setStatusMessage(`${runnerId} smoke test ${job.status}`);
+      return;
     }
   }
 
@@ -286,6 +303,7 @@ export function RunListPage() {
           <RunnerHealthPanel
             runners={runnerHealth}
             smokeResults={runnerSmokeResults}
+            smokeJobs={runnerSmokeJobs}
             testingRunnerId={testingRunnerId}
             onSmokeTest={handleRunnerSmokeTest}
           />

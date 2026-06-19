@@ -27,7 +27,7 @@ RUNNER_REGISTRY = {
         "env": "MADR_ANTIGRAVITY_COMMAND",
         "candidates": [Path("D:/soft/Antigravity/bin/antigravity.cmd")],
         "version_args": ["--version"],
-        "template": 'type "{prompt_file}" | "{executable}" chat --mode ask - > "{output_file}"',
+        "template": '"{executable}" chat --mode agent - < "{instruction_file}"',
     },
 }
 
