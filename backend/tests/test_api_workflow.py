@@ -66,6 +66,22 @@ def test_get_runner_logs_returns_log_contents(tmp_path, monkeypatch) -> None:
     assert "exit_code: 1" in response.json()["logs"][0]["content"]
 
 
+def test_runner_smoke_test_endpoint_returns_result(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    monkeypatch.setattr(
+        api_module,
+        "run_runner_smoke_test",
+        lambda runner_id, runs_root: {"runner_id": runner_id, "status": "succeeded"},
+    )
+    client = TestClient(app)
+
+    response = client.post("/api/runners/codex/smoke-test")
+
+    assert response.status_code == 200
+    assert response.json()["runner_id"] == "codex"
+    assert response.json()["status"] == "succeeded"
+
+
 def test_finalize_run_endpoint_writes_output_docs_and_event(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
     client = TestClient(app)

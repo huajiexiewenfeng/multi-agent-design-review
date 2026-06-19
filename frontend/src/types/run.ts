@@ -63,3 +63,13 @@ export type RunnerLog = {
   path: string;
   content: string;
 };
+
+export type RunnerSmokeResult = {
+  runner_id: string;
+  status: "succeeded" | "failed";
+  exit_code: number | null;
+  output_content: string;
+  log_content: string;
+  error_message: string | null;
+  smoke_dir: string;
+};

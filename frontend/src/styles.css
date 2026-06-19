@@ -604,6 +604,44 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.runner-health-item .secondary-action {
+  justify-self: start;
+  min-height: 32px;
+  border: 1px solid #1c6b5f;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1c6b5f;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.runner-health-item .secondary-action:disabled {
+  border-color: #cfd6df;
+  color: #7a8492;
+}
+
+.runner-smoke-result {
+  display: grid;
+  gap: 4px;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.runner-smoke-result strong {
+  color: #1c6b5f;
+}
+
+.runner-smoke-result[data-status="failed"] strong {
+  color: #b42318;
+}
+
+.runner-smoke-result span {
+  overflow-wrap: anywhere;
+}
+
 .runner-log-item {
   display: grid;
   gap: 8px;

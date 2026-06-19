@@ -1,4 +1,12 @@
-import type { GraphJob, RunnerHealth, RunnerLog, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
+import type {
+  GraphJob,
+  RunnerHealth,
+  RunnerLog,
+  RunnerSmokeResult,
+  RunProjection,
+  StageArtifact,
+  TimelineEvent
+} from "../types/run";
 
 export async function listRuns(): Promise<RunProjection[]> {
   const response = await fetch("/api/runs");
@@ -9,6 +17,14 @@ export async function getRunners(): Promise<RunnerHealth[]> {
   const response = await fetch("/api/runners");
   if (!response.ok) {
     throw new Error(`Failed to load runners: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function runRunnerSmokeTest(runnerId: string): Promise<RunnerSmokeResult> {
+  const response = await fetch(`/api/runners/${runnerId}/smoke-test`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`Failed to run runner smoke test: ${response.status}`);
   }
   return response.json();
 }

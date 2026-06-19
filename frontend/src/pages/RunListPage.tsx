@@ -9,6 +9,7 @@ import {
   getRunnerLogs,
   getStageArtifacts,
   listRuns,
+  runRunnerSmokeTest,
   saveClarificationAnswers,
   saveClarifiedRequirement,
   skipAgent,
@@ -23,7 +24,15 @@ import { RunnerLogsPanel } from "../components/RunnerLogsPanel";
 import { StageBoard } from "../components/StageBoard";
 import { StageDetailPanel } from "../components/StageDetailPanel";
 import { Timeline } from "../components/Timeline";
-import type { GraphJob, RunnerHealth, RunnerLog, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
+import type {
+  GraphJob,
+  RunnerHealth,
+  RunnerLog,
+  RunnerSmokeResult,
+  RunProjection,
+  StageArtifact,
+  TimelineEvent
+} from "../types/run";
 
 export function RunListPage() {
   const [runs, setRuns] = useState<RunProjection[]>([]);
@@ -37,6 +46,8 @@ export function RunListPage() {
   const [activeJob, setActiveJob] = useState<GraphJob | null>(null);
   const [runnerHealth, setRunnerHealth] = useState<RunnerHealth[]>([]);
   const [runnerLogs, setRunnerLogs] = useState<RunnerLog[]>([]);
+  const [runnerSmokeResults, setRunnerSmokeResults] = useState<Record<string, RunnerSmokeResult>>({});
+  const [testingRunnerId, setTestingRunnerId] = useState<string | null>(null);
 
   useEffect(() => {
     getRunners().then(setRunnerHealth);
@@ -92,6 +103,18 @@ export function RunListPage() {
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, selectedStage));
     setStatusMessage(`${agentId} config saved`);
+  }
+
+  async function handleRunnerSmokeTest(runnerId: string) {
+    setTestingRunnerId(runnerId);
+    setStatusMessage(`Testing ${runnerId}`);
+    try {
+      const result = await runRunnerSmokeTest(runnerId);
+      setRunnerSmokeResults((current) => ({ ...current, [runnerId]: result }));
+      setStatusMessage(`${runnerId} smoke test ${result.status}`);
+    } finally {
+      setTestingRunnerId(null);
+    }
   }
 
   async function handleRunGraphStep() {
@@ -260,7 +283,12 @@ export function RunListPage() {
             onSkipAgent={handleSkipAgent}
           />
           <RunnerLogsPanel logs={runnerLogs} />
-          <RunnerHealthPanel runners={runnerHealth} />
+          <RunnerHealthPanel
+            runners={runnerHealth}
+            smokeResults={runnerSmokeResults}
+            testingRunnerId={testingRunnerId}
+            onSmokeTest={handleRunnerSmokeTest}
+          />
           {selectedRun?.agents ? <AgentSettingsPanel agents={selectedRun.agents} onSave={handleSaveAgent} /> : null}
         </section>
 
