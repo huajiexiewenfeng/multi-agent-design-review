@@ -44,6 +44,7 @@ def get_runner_handoffs(run_dir: Path) -> dict[str, object]:
 def import_waiting_runner_outputs(run_dir: Path) -> dict[str, object]:
     projection = recompute_state(run_dir)
     current_stage = projection.stage
+    missing_agents = _missing_agent_ids(projection.missing_inputs)
     imported: list[str] = []
     errors: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -51,6 +52,8 @@ def import_waiting_runner_outputs(run_dir: Path) -> dict[str, object]:
         if event.get("event_type") != "runner_waiting" or event.get("stage") != current_stage.value:
             continue
         agent_id = str(event.get("actor"))
+        if agent_id not in missing_agents:
+            continue
         key = (agent_id, current_stage.value)
         if key in seen:
             continue
@@ -66,3 +69,12 @@ def import_waiting_runner_outputs(run_dir: Path) -> dict[str, object]:
     projection = recompute_state(run_dir)
     write_json(run_dir / "run.json", projection.model_dump(mode="json"))
     return {"projection": projection.model_dump(mode="json"), "imported": imported, "errors": errors}
+
+
+def _missing_agent_ids(missing_inputs: object) -> set[str]:
+    agents: set[str] = set()
+    for missing in missing_inputs:
+        parts = str(missing).replace("\\", "/").split("/")
+        if len(parts) >= 3 and parts[0] == "agents":
+            agents.add(parts[1])
+    return agents

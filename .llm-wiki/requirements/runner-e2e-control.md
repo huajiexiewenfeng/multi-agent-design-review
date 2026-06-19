@@ -53,5 +53,5 @@ The workbench already supports local runners and one LangGraph step at a time, b
 | --- | --- | --- |
 | Requirement anchor | done | This file |
 | Implementation | done | Added run-until-pause control, runner success evidence, mixed-run verification API, and Web UI panel |
-| Verification | done | Backend/frontend full suites, production build, mixed-run E2E test, and live API checks pass |
+| Verification | done | Backend targeted tests pass; live mixed run `20260619_202705_a9f6` completed with Codex CLI and Claude Code `runner_succeeded` evidence, Antigravity `runner_waiting` handoff evidence, final docs ready, and no runner/validation failures |
 | Archive | pending | Commit and push |

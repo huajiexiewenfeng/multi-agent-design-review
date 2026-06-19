@@ -55,3 +55,28 @@ def test_run_until_pause_stops_for_runner_handoff(tmp_path, monkeypatch) -> None
 
     assert result["stop_reason"] == "runner_handoff"
     assert result["steps_run"] == 1
+
+
+def test_run_until_pause_ignores_handoff_for_agent_that_is_not_missing(tmp_path, monkeypatch) -> None:
+    projection = create_run(tmp_path, title="Demo", requirement="# Requirement\nBuild MVP")
+
+    monkeypatch.setattr(
+        "backend.app.services.flow_control_service.run_graph_step",
+        lambda runs_root, run_id, confirmed: {
+            "projection": {
+                "run_id": run_id,
+                "stage": Stage.CLARIFICATION.value,
+                "status": "waiting_input",
+                "missing_inputs": ["agents/architect/clarification_questions.v*.md"],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "backend.app.services.flow_control_service.get_runner_handoffs",
+        lambda run_dir: {"handoffs": [{"stage": Stage.CLARIFICATION.value, "agent_id": "reviewer"}]},
+    )
+
+    result = run_until_pause(tmp_path, projection.run_id)
+
+    assert result["stop_reason"] == "waiting_input"
+    assert result["steps_run"] == 1

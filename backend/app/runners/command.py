@@ -26,6 +26,8 @@ class CommandRunner:
         inbox_dir.mkdir(parents=True, exist_ok=True)
         runner_log_dir.mkdir(parents=True, exist_ok=True)
         output_file = inbox_dir / f"{stage}_result.md"
+        stdout_file = runner_log_dir / "stdout.log"
+        stderr_file = runner_log_dir / "stderr.log"
         command = self.command_template.format(
             run_id=run_id,
             agent_id=agent_id,
@@ -34,55 +36,50 @@ class CommandRunner:
             output_file=str(output_file.resolve()),
         )
         try:
-            process = subprocess.Popen(
-                command,
-                cwd=prompt_file.parents[2],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                shell=True,
-            )
-            output_stable_for = 0
-            last_size = -1
-            captured_output: str | None = None
-            for _ in range(timeout_seconds):
-                if output_file.is_file() and output_file.stat().st_size > 0:
-                    current_size = output_file.stat().st_size
-                    if current_size == last_size:
-                        output_stable_for += 1
+            with stdout_file.open("w", encoding="utf-8", errors="replace") as stdout_handle:
+                with stderr_file.open("w", encoding="utf-8", errors="replace") as stderr_handle:
+                    process = subprocess.Popen(
+                        command,
+                        cwd=prompt_file.parents[2],
+                        stdout=stdout_handle,
+                        stderr=stderr_handle,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        shell=True,
+                    )
+                    output_stable_for = 0
+                    last_size = -1
+                    for _ in range(timeout_seconds):
+                        if output_file.is_file() and output_file.stat().st_size > 0:
+                            current_size = output_file.stat().st_size
+                            if current_size == last_size:
+                                output_stable_for += 1
+                            else:
+                                output_stable_for = 0
+                                last_size = current_size
+                            if output_stable_for >= 2:
+                                break
+                        if process.poll() is not None:
+                            break
+                        time.sleep(1)
+                    timed_out = process.poll() is None
+                    if timed_out:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
                     else:
-                        output_stable_for = 0
-                        last_size = current_size
-                    if output_stable_for >= 2:
-                        captured_output = output_file.read_text(encoding="utf-8")
-                        break
-                if process.poll() is not None:
-                    break
-                time.sleep(1)
-            timed_out = process.poll() is None
-            if timed_out:
-                process.terminate()
-                try:
-                    stdout, stderr = process.communicate(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    stdout = ""
-                    stderr = "Process was terminated after output file became stable."
-            else:
-                try:
-                    stdout, stderr = process.communicate(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    stdout = ""
-                    stderr = "Process pipes did not close after process exit."
-            produced_files = [output_file.name] if output_file.is_file() else []
-            if captured_output and not output_file.is_file():
-                output_file.write_text(captured_output, encoding="utf-8")
-                produced_files = [output_file.name]
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+            stdout = stdout_file.read_text(encoding="utf-8", errors="replace")
+            stderr = stderr_file.read_text(encoding="utf-8", errors="replace")
+            produced_files = [output_file.name] if _is_non_empty_file(output_file) else []
             exit_code = process.returncode
-            if stdout.strip() and not output_file.is_file():
+            if stdout.strip() and not _is_non_empty_file(output_file):
                 output_file.write_text(stdout, encoding="utf-8")
                 produced_files = [output_file.name]
             status = "succeeded" if produced_files and (exit_code in (0, None) or timed_out) else "failed"
@@ -116,3 +113,7 @@ class CommandRunner:
                 started_at=started,
                 finished_at=finished,
             )
+
+
+def _is_non_empty_file(path: Path) -> bool:
+    return path.is_file() and path.stat().st_size > 0

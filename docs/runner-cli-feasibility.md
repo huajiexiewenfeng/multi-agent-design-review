@@ -9,7 +9,7 @@ This project treats the filesystem and `events.jsonl` as the source of truth. CL
 | Runner | Status | Mode | Evidence |
 |---|---|---|---|
 | Codex CLI | Supported | Headless command runner | Smoke test produced `MADR_RUNNER_SMOKE_OK`. |
-| Claude Code | Supported | Headless command runner | Smoke test produced `MADR_RUNNER_SMOKE_OK`. |
+| Claude Code | Supported | Headless command runner | Smoke test produced `MADR_RUNNER_SMOKE_OK`; default template uses `--tools "" --safe-mode` so Claude returns Markdown instead of trying to edit files. |
 | Antigravity CLI | Partial | Launch-and-wait runner | CLI accepts stdin and opens a chat session, but current local CLI did not write the requested output file headlessly. |
 
 ## Codex CLI
@@ -67,4 +67,4 @@ Current integration stance:
 
 - Find whether Antigravity exposes a true headless completion mode or output-file flag.
 - If no headless mode exists, keep Antigravity as a launch-and-wait runner and make its waiting state clearer in the Web UI.
-- Run a full mixed-run workflow with Codex and Claude as headless agents, then verify the Antigravity handoff path with a real file written into `inbox/<agent>/`.
+- Full mixed-run verification passed on `20260619_202705_a9f6`: Codex and Claude completed headless stages, Antigravity produced launch-and-wait handoffs, handoff outputs were imported, and final `design_doc.md` plus `execution_doc.md` were generated.

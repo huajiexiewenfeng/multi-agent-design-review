@@ -37,3 +37,14 @@ def test_review_prompt_includes_all_drafts(tmp_path: Path) -> None:
 
     assert "Architect draft" in prompt
     assert "Engineer draft" in prompt
+
+
+def test_synthesis_prompt_declares_required_document_markers(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_003"
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "input" / "clarified_requirement.md").write_text("Clarified", encoding="utf-8")
+
+    prompt = render_prompt(Stage.SYNTHESIS, "synthesizer", run_dir)
+
+    assert "# Design Document" in prompt
+    assert "# Execution Document" in prompt

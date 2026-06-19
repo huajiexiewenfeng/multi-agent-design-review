@@ -37,7 +37,7 @@ def _stop_reason(runs_root: Path, run_id: str, before_stage: str, projection: di
     missing_inputs = projection.get("missing_inputs") or []
     status = str(projection["status"])
 
-    if _has_current_stage_handoff(runs_root, run_id, stage):
+    if _has_current_stage_handoff(runs_root, run_id, stage, _missing_agent_ids(missing_inputs)):
         return "runner_handoff"
     if stage == Stage.CLARIFIED_REQUIREMENT.value and missing_inputs:
         return "human_input"
@@ -48,7 +48,21 @@ def _stop_reason(runs_root: Path, run_id: str, before_stage: str, projection: di
     return "continue"
 
 
-def _has_current_stage_handoff(runs_root: Path, run_id: str, stage: str) -> bool:
+def _has_current_stage_handoff(runs_root: Path, run_id: str, stage: str, missing_agents: set[str]) -> bool:
+    if not missing_agents:
+        return False
     run_dir = get_run_dir(runs_root, run_id)
     handoffs = get_runner_handoffs(run_dir)["handoffs"]
-    return any(handoff["stage"] == stage for handoff in handoffs)
+    return any(
+        handoff["stage"] == stage and str(handoff.get("agent_id")) in missing_agents
+        for handoff in handoffs
+    )
+
+
+def _missing_agent_ids(missing_inputs: object) -> set[str]:
+    agents: set[str] = set()
+    for missing in missing_inputs:
+        parts = str(missing).replace("\\", "/").split("/")
+        if len(parts) >= 3 and parts[0] == "agents":
+            agents.add(parts[1])
+    return agents

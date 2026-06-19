@@ -20,7 +20,7 @@ RUNNER_REGISTRY = {
         "env": "MADR_CLAUDE_CODE_COMMAND",
         "candidates": [NPM_BIN / "claude.cmd"],
         "version_args": ["--version"],
-        "template": 'type "{prompt_file}" | "{executable}" -p --output-format text > "{output_file}"',
+        "template": 'type "{prompt_file}" | "{executable}" -p --output-format text --tools "" --safe-mode > "{output_file}"',
     },
     "antigravity": {
         "label": "Antigravity CLI",
@@ -78,6 +78,8 @@ def _first_existing(candidates: object) -> Path | None:
         try:
             if path.is_file():
                 return path
+        except PermissionError:
+            return path
         except OSError:
             continue
     return None

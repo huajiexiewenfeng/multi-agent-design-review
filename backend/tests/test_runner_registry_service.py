@@ -42,3 +42,14 @@ def test_read_version_replaces_undecodable_output(monkeypatch) -> None:
     assert error is None
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
+
+
+def test_first_existing_keeps_permission_denied_candidate(monkeypatch) -> None:
+    candidate = Path("C:/Users/admin/AppData/Roaming/npm/codex.cmd")
+
+    def blocked_is_file(self):
+        raise PermissionError("sandbox denied")
+
+    monkeypatch.setattr(Path, "is_file", blocked_is_file)
+
+    assert runner_registry_service._first_existing([candidate]) == candidate

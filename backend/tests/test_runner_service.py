@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 
 from backend.app.runners.base import RunnerResult
+from backend.app.runners import command as command_runner_module
 from backend.app.runners.command import CommandRunner
 from backend.app.runners.mock import MockRunner
 from backend.app.services import runner_service
@@ -266,6 +267,111 @@ def test_command_runner_returns_when_output_file_is_stable(tmp_path: Path) -> No
     assert result.status == "succeeded"
     assert result.produced_files == ["clarification_result.md"]
     assert "terminated_after_output: True" in (logs / "command.log").read_text(encoding="utf-8")
+
+
+def test_command_runner_does_not_treat_empty_output_file_as_success(tmp_path: Path) -> None:
+    prompt = tmp_path / "runs" / "run_001" / "agents" / "architect" / "prompt.md"
+    prompt.parent.mkdir(parents=True)
+    inbox = tmp_path / "runs" / "run_001" / "inbox" / "architect"
+    logs = tmp_path / "runs" / "run_001" / "runner_logs" / "architect"
+    prompt.write_text("## Prompt\nCreate questions", encoding="utf-8")
+    script = tmp_path / "touch_empty.py"
+    script.write_text(
+        "import pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1]).write_text('', encoding='utf-8')\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+
+    result = CommandRunner(f'"{sys.executable}" "{script}" "{{output_file}}"').run(
+        run_id="run_001",
+        agent_id="architect",
+        stage="clarification",
+        prompt_file=prompt,
+        inbox_dir=inbox,
+        runner_log_dir=logs,
+        timeout_seconds=3,
+        metadata={},
+    )
+
+    assert result.status == "failed"
+    assert result.produced_files == []
+
+
+def test_command_runner_handles_verbose_process_output_without_deadlock(tmp_path: Path) -> None:
+    prompt = tmp_path / "runs" / "run_001" / "agents" / "architect" / "prompt.md"
+    prompt.parent.mkdir(parents=True)
+    inbox = tmp_path / "runs" / "run_001" / "inbox" / "architect"
+    logs = tmp_path / "runs" / "run_001" / "runner_logs" / "architect"
+    prompt.write_text("## Prompt\nCreate questions", encoding="utf-8")
+    script = tmp_path / "verbose_then_write.py"
+    script.write_text(
+        "import pathlib, sys\n"
+        "sys.stderr.write('x' * 2000000)\n"
+        "sys.stderr.flush()\n"
+        "pathlib.Path(sys.argv[1]).write_text('## Clarification Questions\\n\\n1. [required] Verbose?', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    result = CommandRunner(f'"{sys.executable}" "{script}" "{{output_file}}"').run(
+        run_id="run_001",
+        agent_id="architect",
+        stage="clarification",
+        prompt_file=prompt,
+        inbox_dir=inbox,
+        runner_log_dir=logs,
+        timeout_seconds=5,
+        metadata={},
+    )
+
+    assert result.status == "succeeded"
+    assert result.produced_files == ["clarification_result.md"]
+    assert "Verbose" in (inbox / "clarification_result.md").read_text(encoding="utf-8")
+
+
+def test_command_runner_redirects_process_output_to_log_files(tmp_path: Path, monkeypatch) -> None:
+    prompt = tmp_path / "runs" / "run_001" / "agents" / "architect" / "prompt.md"
+    prompt.parent.mkdir(parents=True)
+    inbox = tmp_path / "runs" / "run_001" / "inbox" / "architect"
+    logs = tmp_path / "runs" / "run_001" / "runner_logs" / "architect"
+    prompt.write_text("## Prompt\nCreate questions", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class CompletedProcess:
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def communicate(self, timeout=None):
+            return "## Clarification Questions\n\n1. [required] From stdout?", ""
+
+    def fake_popen(command, **kwargs):
+        captured["stdout"] = kwargs["stdout"]
+        captured["stderr"] = kwargs["stderr"]
+        kwargs["stdout"].write("## Clarification Questions\n\n1. [required] From stdout?")
+        kwargs["stderr"].write("warning")
+        return CompletedProcess()
+
+    monkeypatch.setattr(command_runner_module.subprocess, "Popen", fake_popen)
+
+    result = CommandRunner("demo {prompt_file}").run(
+        run_id="run_001",
+        agent_id="architect",
+        stage="clarification",
+        prompt_file=prompt,
+        inbox_dir=inbox,
+        runner_log_dir=logs,
+        timeout_seconds=5,
+        metadata={},
+    )
+
+    assert result.status == "succeeded"
+    assert captured["stdout"] != command_runner_module.subprocess.PIPE
+    assert captured["stderr"] != command_runner_module.subprocess.PIPE
 
 
 def test_command_runner_replaces_undecodable_process_output(tmp_path: Path) -> None:

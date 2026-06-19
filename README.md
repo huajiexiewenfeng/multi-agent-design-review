@@ -31,7 +31,7 @@ The Web UI can show and select `codex`, `claude-code`, and `antigravity` runners
 
 ```powershell
 $env:MADR_CODEX_COMMAND = '"C:\Users\<you>\AppData\Roaming\npm\codex.cmd" exec --cd "{workspace}" --sandbox read-only -o "{output_file}" - < "{prompt_file}"'
-$env:MADR_CLAUDE_CODE_COMMAND = 'type "{prompt_file}" | "C:\Users\<you>\AppData\Roaming\npm\claude.cmd" -p --output-format text > "{output_file}"'
+$env:MADR_CLAUDE_CODE_COMMAND = 'type "{prompt_file}" | "C:\Users\<you>\AppData\Roaming\npm\claude.cmd" -p --output-format text --tools "" --safe-mode > "{output_file}"'
 $env:MADR_ANTIGRAVITY_COMMAND = '"D:\soft\Antigravity\bin\antigravity.cmd" chat --mode agent - < "{instruction_file}"'
 ```
 
