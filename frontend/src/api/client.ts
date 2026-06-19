@@ -1,4 +1,4 @@
-import type { GraphJob, RunProjection, RunnerHealth, StageArtifact, TimelineEvent } from "../types/run";
+import type { GraphJob, RunnerHealth, RunnerLog, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
 
 export async function listRuns(): Promise<RunProjection[]> {
   const response = await fetch("/api/runs");
@@ -35,6 +35,15 @@ export async function getRun(runId: string): Promise<RunProjection> {
 export async function getEvents(runId: string): Promise<TimelineEvent[]> {
   const response = await fetch(`/api/runs/${runId}/events`);
   return response.json();
+}
+
+export async function getRunnerLogs(runId: string): Promise<RunnerLog[]> {
+  const response = await fetch(`/api/runs/${runId}/runner-logs`);
+  if (!response.ok) {
+    throw new Error(`Failed to load runner logs: ${response.status}`);
+  }
+  const body = await response.json();
+  return body.logs;
 }
 
 export async function getStageArtifacts(runId: string, stage: string): Promise<StageArtifact[]> {

@@ -57,3 +57,9 @@ export type RunnerHealth = {
   command_template: string | null;
   error: string | null;
 };
+
+export type RunnerLog = {
+  agent_id: string;
+  path: string;
+  content: string;
+};

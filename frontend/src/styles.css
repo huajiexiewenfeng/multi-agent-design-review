@@ -417,7 +417,8 @@ textarea {
 }
 
 .settings-panel,
-.runner-health-panel {
+.runner-health-panel,
+.runner-logs-panel {
   border: 1px solid #d8dde5;
   border-radius: 8px;
   background: #ffffff;
@@ -558,6 +559,11 @@ textarea {
   gap: 10px;
 }
 
+.runner-log-list {
+  display: grid;
+  gap: 10px;
+}
+
 .runner-health-item {
   display: grid;
   gap: 8px;
@@ -596,6 +602,44 @@ textarea {
   color: #1e293b;
   font-size: 11px;
   overflow-wrap: anywhere;
+}
+
+.runner-log-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  background: #fafbfc;
+  padding: 10px;
+}
+
+.runner-log-item header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.runner-log-item header strong,
+.runner-log-item header span {
+  color: #566273;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.runner-log-item pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 8px;
+  background: #18202b;
+  color: #edf2f7;
+  padding: 12px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .settings-row {

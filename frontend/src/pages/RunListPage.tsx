@@ -6,6 +6,7 @@ import {
   getRun,
   getGraphJob,
   getRunners,
+  getRunnerLogs,
   getStageArtifacts,
   listRuns,
   saveClarificationAnswers,
@@ -18,10 +19,11 @@ import {
 import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
 import { RunControls } from "../components/RunControls";
 import { RunnerHealthPanel } from "../components/RunnerHealthPanel";
+import { RunnerLogsPanel } from "../components/RunnerLogsPanel";
 import { StageBoard } from "../components/StageBoard";
 import { StageDetailPanel } from "../components/StageDetailPanel";
 import { Timeline } from "../components/Timeline";
-import type { GraphJob, RunnerHealth, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
+import type { GraphJob, RunnerHealth, RunnerLog, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
 
 export function RunListPage() {
   const [runs, setRuns] = useState<RunProjection[]>([]);
@@ -34,6 +36,7 @@ export function RunListPage() {
   const [stageArtifacts, setStageArtifacts] = useState<StageArtifact[]>([]);
   const [activeJob, setActiveJob] = useState<GraphJob | null>(null);
   const [runnerHealth, setRunnerHealth] = useState<RunnerHealth[]>([]);
+  const [runnerLogs, setRunnerLogs] = useState<RunnerLog[]>([]);
 
   useEffect(() => {
     getRunners().then(setRunnerHealth);
@@ -42,6 +45,7 @@ export function RunListPage() {
       setSelectedRun(loadedRuns[0] ?? null);
       if (loadedRuns[0]) {
         getEvents(loadedRuns[0].run_id).then(setEvents);
+        getRunnerLogs(loadedRuns[0].run_id).then(setRunnerLogs);
         setSelectedStage(loadedRuns[0].stage);
         getStageArtifacts(loadedRuns[0].run_id, loadedRuns[0].stage).then(setStageArtifacts);
       }
@@ -52,6 +56,7 @@ export function RunListPage() {
     setSelectedRun(run);
     setSelectedStage(run.stage);
     setEvents(await getEvents(run.run_id));
+    setRunnerLogs(await getRunnerLogs(run.run_id));
     setStageArtifacts(await getStageArtifacts(run.run_id, run.stage));
   }
 
@@ -71,6 +76,7 @@ export function RunListPage() {
     setSelectedRun(created);
     setSelectedStage(created.stage);
     setEvents(await getEvents(created.run_id));
+    setRunnerLogs(await getRunnerLogs(created.run_id));
     setStageArtifacts(await getStageArtifacts(created.run_id, created.stage));
     setStatusMessage("Run created");
   }
@@ -83,6 +89,7 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, selectedStage));
     setStatusMessage(`${agentId} config saved`);
   }
@@ -115,6 +122,7 @@ export function RunListPage() {
       setSelectedStage(updated.stage);
       setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
       setEvents(await getEvents(updated.run_id));
+      setRunnerLogs(await getRunnerLogs(updated.run_id));
       setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
       setStatusMessage("Graph step completed");
       setActiveJob(null);
@@ -131,6 +139,7 @@ export function RunListPage() {
     setSelectedStage("synthesis");
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, "synthesis"));
     setStatusMessage("Final output generated");
   }
@@ -144,6 +153,7 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, stage));
     setStatusMessage(`${agentId} output submitted`);
   }
@@ -153,6 +163,7 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, stage));
     setStatusMessage(message);
   }
@@ -248,6 +259,7 @@ export function RunListPage() {
             onSaveRequirement={handleSaveRequirement}
             onSkipAgent={handleSkipAgent}
           />
+          <RunnerLogsPanel logs={runnerLogs} />
           <RunnerHealthPanel runners={runnerHealth} />
           {selectedRun?.agents ? <AgentSettingsPanel agents={selectedRun.agents} onSave={handleSaveAgent} /> : null}
         </section>

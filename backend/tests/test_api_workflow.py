@@ -50,6 +50,22 @@ def test_get_stage_artifacts_returns_prompt_and_outputs(tmp_path, monkeypatch) -
     assert body["artifacts"][0]["content"]
 
 
+def test_get_runner_logs_returns_log_contents(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+    run_id = created["run_id"]
+    run_dir = tmp_path / run_id
+    (run_dir / "runner_logs" / "architect").mkdir(parents=True, exist_ok=True)
+    (run_dir / "runner_logs" / "architect" / "command.log").write_text("exit_code: 1", encoding="utf-8")
+
+    response = client.get(f"/api/runs/{run_id}/runner-logs")
+
+    assert response.status_code == 200
+    assert response.json()["logs"][0]["agent_id"] == "architect"
+    assert "exit_code: 1" in response.json()["logs"][0]["content"]
+
+
 def test_finalize_run_endpoint_writes_output_docs_and_event(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
     client = TestClient(app)
