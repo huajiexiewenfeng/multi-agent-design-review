@@ -3,6 +3,7 @@ import time
 
 import backend.app.api as api_module
 from backend.app.main import app
+from backend.app.services import runner_service
 
 
 def test_create_run_api(tmp_path, monkeypatch) -> None:
@@ -35,6 +36,7 @@ def test_update_agent_config_api(tmp_path, monkeypatch) -> None:
 
 def test_graph_step_api_uses_configured_runner_and_generates_prompt(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    monkeypatch.setattr(runner_service, "resolve_runner_command", lambda runner: None)
     client = TestClient(app)
     created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
     client.put(

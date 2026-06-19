@@ -4,22 +4,19 @@ import os
 import yaml
 
 from backend.app.models import Stage
-from backend.app.runners.command import CommandRunner
 from backend.app.runners.file import FileRunner
 from backend.app.runners.manual import ManualRunner
 from backend.app.runners.mock import MockRunner
 from backend.app.services.prompt_service import render_prompt
+from backend.app.services.runner_registry_service import resolve_runner_command
 from backend.app.services.workflow_service import import_from_inbox
+from backend.app.runners.command import CommandRunner
 
 
 def get_runner(name: str):
-    command_env = {
-        "codex": "MADR_CODEX_COMMAND",
-        "claude-code": "MADR_CLAUDE_CODE_COMMAND",
-        "antigravity": "MADR_ANTIGRAVITY_COMMAND",
-    }
-    if name in command_env and os.environ.get(command_env[name]):
-        return CommandRunner(os.environ[command_env[name]])
+    command = resolve_runner_command(name)
+    if command:
+        return CommandRunner(command)
 
     runners = {
         "manual": ManualRunner(),

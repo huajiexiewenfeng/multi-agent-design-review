@@ -5,6 +5,7 @@ import {
   getEvents,
   getRun,
   getGraphJob,
+  getRunners,
   getStageArtifacts,
   listRuns,
   saveClarificationAnswers,
@@ -16,10 +17,11 @@ import {
 } from "../api/client";
 import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
 import { RunControls } from "../components/RunControls";
+import { RunnerHealthPanel } from "../components/RunnerHealthPanel";
 import { StageBoard } from "../components/StageBoard";
 import { StageDetailPanel } from "../components/StageDetailPanel";
 import { Timeline } from "../components/Timeline";
-import type { GraphJob, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
+import type { GraphJob, RunnerHealth, RunProjection, StageArtifact, TimelineEvent } from "../types/run";
 
 export function RunListPage() {
   const [runs, setRuns] = useState<RunProjection[]>([]);
@@ -31,8 +33,10 @@ export function RunListPage() {
   const [selectedStage, setSelectedStage] = useState("requirement");
   const [stageArtifacts, setStageArtifacts] = useState<StageArtifact[]>([]);
   const [activeJob, setActiveJob] = useState<GraphJob | null>(null);
+  const [runnerHealth, setRunnerHealth] = useState<RunnerHealth[]>([]);
 
   useEffect(() => {
+    getRunners().then(setRunnerHealth);
     listRuns().then((loadedRuns) => {
       setRuns(loadedRuns);
       setSelectedRun(loadedRuns[0] ?? null);
@@ -244,6 +248,7 @@ export function RunListPage() {
             onSaveRequirement={handleSaveRequirement}
             onSkipAgent={handleSkipAgent}
           />
+          <RunnerHealthPanel runners={runnerHealth} />
           {selectedRun?.agents ? <AgentSettingsPanel agents={selectedRun.agents} onSave={handleSaveAgent} /> : null}
         </section>
 

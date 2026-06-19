@@ -416,7 +416,8 @@ textarea {
   line-height: 1.5;
 }
 
-.settings-panel {
+.settings-panel,
+.runner-health-panel {
   border: 1px solid #d8dde5;
   border-radius: 8px;
   background: #ffffff;
@@ -550,6 +551,51 @@ textarea {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.runner-health-list {
+  display: grid;
+  gap: 10px;
+}
+
+.runner-health-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  background: #fafbfc;
+  padding: 10px;
+}
+
+.runner-health-item[data-available="true"] {
+  border-color: #b8d8cf;
+  background: #f2faf7;
+}
+
+.runner-health-item header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.runner-health-item header strong,
+.runner-health-item header span {
+  color: #344154;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.runner-health-item p {
+  margin: 0;
+  color: #667183;
+  font-size: 12px;
+}
+
+.runner-health-item code {
+  display: block;
+  color: #1e293b;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .settings-row {

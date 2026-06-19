@@ -45,3 +45,15 @@ export type GraphJob = {
   finished_at?: string | null;
   created_at: string;
 };
+
+export type RunnerHealth = {
+  id: string;
+  label: string;
+  available: boolean;
+  configured: boolean;
+  executable: string | null;
+  version: string | null;
+  env: string;
+  command_template: string | null;
+  error: string | null;
+};
