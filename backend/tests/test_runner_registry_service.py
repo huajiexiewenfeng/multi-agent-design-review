@@ -20,3 +20,25 @@ def test_runner_health_reports_configured_env(monkeypatch) -> None:
     assert claude["available"] is True
     assert claude["configured"] is True
     assert claude["command_template"] == "claude-test {prompt_file}"
+
+
+def test_read_version_replaces_undecodable_output(monkeypatch) -> None:
+    captured = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "codex-cli 0.141.0\nwarning �"
+        stderr = ""
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return Completed()
+
+    monkeypatch.setattr(runner_registry_service.subprocess, "run", fake_run)
+
+    version, error = runner_registry_service._read_version(Path("C:/fake/codex.cmd"), ["--version"])
+
+    assert version == "codex-cli 0.141.0"
+    assert error is None
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"

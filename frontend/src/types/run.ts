@@ -106,3 +106,34 @@ export type RunnerSmokeJob = {
   finished_at?: string | null;
   created_at: string;
 };
+
+export type FlowVerificationEvidence = {
+  event_id: string;
+  event_type: string;
+  stage: string;
+  agent_id: string;
+  message: string;
+  related_file: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type FlowVerificationRunner = {
+  runner: string;
+  satisfied: boolean;
+  evidence: FlowVerificationEvidence[];
+};
+
+export type FlowVerificationOutput = {
+  path: string;
+  exists: boolean;
+  non_empty: boolean;
+  ready: boolean;
+};
+
+export type FlowVerification = {
+  run_id: string;
+  complete: boolean;
+  final_outputs_ready: boolean;
+  final_outputs: FlowVerificationOutput[];
+  runners: FlowVerificationRunner[];
+};

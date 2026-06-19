@@ -105,6 +105,39 @@ def test_run_agent_stage_records_runner_failure_event(tmp_path: Path, monkeypatc
     assert "runner_logs/architect/command.log" in events
 
 
+def test_run_agent_stage_records_runner_success_event(tmp_path: Path, monkeypatch) -> None:
+    class SuccessfulRunner:
+        def run(self, **kwargs):
+            kwargs["inbox_dir"].mkdir(parents=True)
+            kwargs["runner_log_dir"].mkdir(parents=True)
+            (kwargs["inbox_dir"] / "clarification_result.md").write_text(
+                "## Clarification Questions\n\n1. [required] Who uses it?\n\n## Assumptions\n\n- Local-first.\n",
+                encoding="utf-8",
+            )
+            (kwargs["runner_log_dir"] / "command.log").write_text("exit_code: 0", encoding="utf-8")
+            return RunnerResult(
+                status="succeeded",
+                exit_code=0,
+                produced_files=["clarification_result.md"],
+                stdout_summary="ok",
+                started_at="2026-06-19T00:00:00+00:00",
+                finished_at="2026-06-19T00:00:01+00:00",
+            )
+
+    run_dir = tmp_path / "run_001"
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "input" / "requirement.md").write_text("# Requirement\nBuild", encoding="utf-8")
+    monkeypatch.setattr(runner_service, "get_runner", lambda name: SuccessfulRunner())
+
+    runner_service.run_agent_stage(run_dir, "architect", runner_service.Stage.CLARIFICATION, "codex")
+
+    events = (run_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert "runner_succeeded" in events
+    assert '"runner": "codex"' in events
+    assert '"status": "succeeded"' in events
+    assert "runner_logs/architect/command.log" in events
+
+
 def test_run_agent_stage_records_runner_waiting_event(tmp_path: Path, monkeypatch) -> None:
     class WaitingRunner:
         def run(self, **kwargs):

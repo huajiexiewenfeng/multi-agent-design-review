@@ -89,6 +89,8 @@ def _read_version(executable: Path, args: list[str]) -> tuple[str | None, str | 
             [str(executable), *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
         )

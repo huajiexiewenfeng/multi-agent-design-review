@@ -111,6 +111,21 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
             },
         )
         return
+    append_event(
+        run_dir,
+        stage,
+        agent_id,
+        ActorType.AGENT,
+        "runner_succeeded",
+        f"{runner_name} runner completed {stage.value}",
+        _first_runner_log(run_dir, agent_id),
+        {
+            "runner": runner_name,
+            "status": result.status,
+            "exit_code": result.exit_code,
+            "produced_files": result.produced_files,
+        },
+    )
     if result.status == "succeeded" and stage == Stage.SYNTHESIS:
         _import_synthesis(run_dir)
     elif result.status == "succeeded":

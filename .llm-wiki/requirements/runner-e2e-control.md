@@ -11,6 +11,8 @@ The workbench already supports local runners and one LangGraph step at a time, b
 - Add a Web UI control that runs the workflow repeatedly until it reaches a meaningful pause point.
 - Keep the existing single-step control for precise debugging.
 - Stop the loop when human input, runner handoff output, runner failure, final synthesis readiness, or a safety step limit is reached.
+- Record successful runner execution events so Codex CLI and Claude Code participation can be proven from `events.jsonl`.
+- Add a mixed-run verification report that checks final docs and runner evidence for Codex CLI, Claude Code, and Antigravity.
 
 ## Non-Goals
 
@@ -23,6 +25,7 @@ The workbench already supports local runners and one LangGraph step at a time, b
 - Backend exposes a run-until-pause job that repeatedly calls the existing graph step path.
 - The job reports why it stopped and how many steps ran.
 - Frontend shows a `Run Until Pause` control and polls it like existing graph jobs.
+- Frontend shows mixed-run verification evidence for final outputs and each local runner.
 - Existing graph step, runner handoff, runner smoke, and finalize behavior continue to pass tests.
 
 ## Active Scope
@@ -33,11 +36,14 @@ The workbench already supports local runners and one LangGraph step at a time, b
 - `frontend/src/components/RunControls.tsx`
 - `frontend/src/pages/RunListPage.tsx`
 - Runner and workflow tests needed to prove the control loop.
+- `backend/app/services/flow_verification_service.py`
+- `frontend/src/components/FlowVerificationPanel.tsx`
 
 ## Verification Plan
 
 - Add backend tests for run-until-pause stop reasons.
 - Add frontend component/page tests for the new control.
+- Add backend and frontend tests for mixed runner verification evidence.
 - Run the full backend test suite, frontend test suite, and frontend build.
 - Exercise the Web UI in the in-app browser against a local run.
 
@@ -46,6 +52,6 @@ The workbench already supports local runners and one LangGraph step at a time, b
 | Step | Status | Evidence |
 | --- | --- | --- |
 | Requirement anchor | done | This file |
-| Implementation | done | Added run-until-pause backend service, job endpoint, API client, and Web UI control |
-| Verification | done | Backend/frontend tests, frontend build, API call, and browser click check |
+| Implementation | done | Added run-until-pause control, runner success evidence, mixed-run verification API, and Web UI panel |
+| Verification | done | Backend/frontend full suites, production build, mixed-run E2E test, and live API checks pass |
 | Archive | pending | Commit and push |

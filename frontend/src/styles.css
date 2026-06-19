@@ -419,7 +419,8 @@ textarea {
 .settings-panel,
 .runner-health-panel,
 .runner-handoffs-panel,
-.runner-logs-panel {
+.runner-logs-panel,
+.flow-verification-panel {
   border: 1px solid #d8dde5;
   border-radius: 8px;
   background: #ffffff;
@@ -568,6 +569,73 @@ textarea {
 .runner-handoff-list {
   display: grid;
   gap: 10px;
+}
+
+.verification-output-list,
+.verification-runner-list {
+  display: grid;
+  gap: 10px;
+}
+
+.verification-status {
+  display: inline-flex;
+  width: max-content;
+  border-radius: 999px;
+  background: #fff0d6;
+  color: #794b00;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.verification-status[data-complete="true"] {
+  background: #e8f3f0;
+  color: #1c6b5f;
+}
+
+.verification-output-item,
+.verification-runner-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  background: #fafbfc;
+  padding: 10px;
+}
+
+.verification-output-item[data-ready="true"],
+.verification-runner-item[data-satisfied="true"] {
+  border-color: #b8d8cf;
+  background: #f2faf7;
+}
+
+.verification-output-item strong,
+.verification-output-item span,
+.verification-runner-item header strong,
+.verification-runner-item header span {
+  color: #344154;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.verification-runner-item header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.verification-runner-item p {
+  margin: 0;
+  color: #667183;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.verification-runner-item code {
+  color: #1e293b;
+  font-size: 12px;
 }
 
 .runner-handoffs-panel > .secondary-action {

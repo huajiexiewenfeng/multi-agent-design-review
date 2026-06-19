@@ -9,6 +9,7 @@ from backend.app.services.artifact_service import get_stage_artifacts
 from backend.app.services.event_service import read_events
 from backend.app.services.file_service import write_text
 from backend.app.services.finalize_service import finalize_run
+from backend.app.services.flow_verification_service import get_mixed_runner_verification
 from backend.app.services.graph_service import run_graph_step
 from backend.app.services.human_control_service import advance_stage, revert_stage, skip_agent
 from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
@@ -148,6 +149,14 @@ def get_runner_handoffs_endpoint(run_id: str):
 def import_runner_handoffs_endpoint(run_id: str):
     try:
         return import_waiting_runner_outputs(get_run_dir(RUNS_ROOT, run_id))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.get("/runs/{run_id}/verification/mixed-runners")
+def get_mixed_runner_verification_endpoint(run_id: str):
+    try:
+        return get_mixed_runner_verification(get_run_dir(RUNS_ROOT, run_id))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
 

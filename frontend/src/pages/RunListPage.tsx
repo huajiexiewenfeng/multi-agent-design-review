@@ -3,6 +3,7 @@ import {
   createRun,
   finalizeRun,
   getEvents,
+  getFlowVerification,
   getRun,
   getGraphJob,
   getRunners,
@@ -22,6 +23,7 @@ import {
   updateAgentConfig
 } from "../api/client";
 import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
+import { FlowVerificationPanel } from "../components/FlowVerificationPanel";
 import { RunControls } from "../components/RunControls";
 import { RunnerHealthPanel } from "../components/RunnerHealthPanel";
 import { RunnerHandoffsPanel } from "../components/RunnerHandoffsPanel";
@@ -30,6 +32,7 @@ import { StageBoard } from "../components/StageBoard";
 import { StageDetailPanel } from "../components/StageDetailPanel";
 import { Timeline } from "../components/Timeline";
 import type {
+  FlowVerification,
   GraphJob,
   RunnerHandoff,
   RunnerHealth,
@@ -54,6 +57,7 @@ export function RunListPage() {
   const [runnerHealth, setRunnerHealth] = useState<RunnerHealth[]>([]);
   const [runnerHandoffs, setRunnerHandoffs] = useState<RunnerHandoff[]>([]);
   const [runnerLogs, setRunnerLogs] = useState<RunnerLog[]>([]);
+  const [flowVerification, setFlowVerification] = useState<FlowVerification | null>(null);
   const [runnerSmokeResults, setRunnerSmokeResults] = useState<Record<string, RunnerSmokeResult>>({});
   const [runnerSmokeJobs, setRunnerSmokeJobs] = useState<Record<string, RunnerSmokeJob>>({});
   const [testingRunnerId, setTestingRunnerId] = useState<string | null>(null);
@@ -66,6 +70,7 @@ export function RunListPage() {
       setSelectedRun(loadedRuns[0] ?? null);
       if (loadedRuns[0]) {
         getEvents(loadedRuns[0].run_id).then(setEvents);
+        getFlowVerification(loadedRuns[0].run_id).then(setFlowVerification);
         getRunnerHandoffs(loadedRuns[0].run_id).then(setRunnerHandoffs);
         getRunnerLogs(loadedRuns[0].run_id).then(setRunnerLogs);
         setSelectedStage(loadedRuns[0].stage);
@@ -78,6 +83,7 @@ export function RunListPage() {
     setSelectedRun(run);
     setSelectedStage(run.stage);
     setEvents(await getEvents(run.run_id));
+    setFlowVerification(await getFlowVerification(run.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(run.run_id));
     setRunnerLogs(await getRunnerLogs(run.run_id));
     setStageArtifacts(await getStageArtifacts(run.run_id, run.stage));
@@ -99,6 +105,7 @@ export function RunListPage() {
     setSelectedRun(created);
     setSelectedStage(created.stage);
     setEvents(await getEvents(created.run_id));
+    setFlowVerification(await getFlowVerification(created.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(created.run_id));
     setRunnerLogs(await getRunnerLogs(created.run_id));
     setStageArtifacts(await getStageArtifacts(created.run_id, created.stage));
@@ -113,6 +120,7 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setFlowVerification(await getFlowVerification(updated.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, selectedStage));
@@ -183,6 +191,7 @@ export function RunListPage() {
       setSelectedStage(updated.stage);
       setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
       setEvents(await getEvents(updated.run_id));
+      setFlowVerification(await getFlowVerification(updated.run_id));
       setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
       setRunnerLogs(await getRunnerLogs(updated.run_id));
       setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
@@ -205,6 +214,7 @@ export function RunListPage() {
     setSelectedStage("synthesis");
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setFlowVerification(await getFlowVerification(updated.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, "synthesis"));
@@ -220,6 +230,7 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setFlowVerification(await getFlowVerification(updated.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, stage));
@@ -231,6 +242,7 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setFlowVerification(await getFlowVerification(updated.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, stage));
@@ -249,6 +261,7 @@ export function RunListPage() {
       setSelectedStage(updated.stage);
       setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
       setEvents(await getEvents(updated.run_id));
+      setFlowVerification(await getFlowVerification(updated.run_id));
       setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
       setRunnerLogs(await getRunnerLogs(updated.run_id));
       setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
@@ -360,6 +373,7 @@ export function RunListPage() {
             isImporting={isImportingHandoffs}
             onImport={handleImportRunnerHandoffs}
           />
+          <FlowVerificationPanel verification={flowVerification} />
           <RunnerHealthPanel
             runners={runnerHealth}
             smokeResults={runnerSmokeResults}

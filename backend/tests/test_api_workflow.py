@@ -98,6 +98,22 @@ def test_import_runner_handoffs_endpoint(tmp_path, monkeypatch) -> None:
     assert response.json()["imported"] == ["agents/architect/out.md"]
 
 
+def test_get_mixed_runner_verification_endpoint(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    monkeypatch.setattr(
+        api_module,
+        "get_mixed_runner_verification",
+        lambda run_dir: {"run_id": run_dir.name, "complete": True, "runners": []},
+    )
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.get(f"/api/runs/{created['run_id']}/verification/mixed-runners")
+
+    assert response.status_code == 200
+    assert response.json()["complete"] is True
+
+
 def test_runner_smoke_test_endpoint_returns_result(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
     monkeypatch.setattr(

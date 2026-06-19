@@ -1,4 +1,5 @@
 import type {
+  FlowVerification,
   GraphJob,
   RunnerHandoff,
   RunnerHandoffImportResult,
@@ -94,6 +95,14 @@ export async function importRunnerHandoffs(runId: string): Promise<RunnerHandoff
   const response = await fetch(`/api/runs/${runId}/runner-handoffs/import`, { method: "POST" });
   if (!response.ok) {
     throw new Error(`Failed to import runner handoffs: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getFlowVerification(runId: string): Promise<FlowVerification> {
+  const response = await fetch(`/api/runs/${runId}/verification/mixed-runners`);
+  if (!response.ok) {
+    throw new Error(`Failed to load flow verification: ${response.status}`);
   }
   return response.json();
 }
