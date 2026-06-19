@@ -12,7 +12,7 @@ from backend.app.services.finalize_service import finalize_run
 from backend.app.services.graph_service import run_graph_step
 from backend.app.services.human_control_service import advance_stage, revert_stage, skip_agent
 from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
-from backend.app.services.job_service import get_job, start_graph_step_job
+from backend.app.services.job_service import get_job, start_graph_step_job, start_run_until_pause_job
 from backend.app.services.run_service import create_run, get_run_dir, list_runs
 from backend.app.services.runner_handoff_service import get_runner_handoffs, import_waiting_runner_outputs
 from backend.app.services.runner_log_service import get_runner_logs
@@ -60,6 +60,10 @@ class AgentConfigRequest(BaseModel):
 
 class GraphStepRequest(BaseModel):
     confirmed: bool = True
+
+
+class RunUntilPauseRequest(BaseModel):
+    max_steps: int = 10
 
 
 @router.get("/runs")
@@ -217,6 +221,15 @@ def start_graph_step_job_endpoint(run_id: str, request: GraphStepRequest):
     try:
         get_run_dir(RUNS_ROOT, run_id)
         return start_graph_step_job(RUNS_ROOT, run_id, request.confirmed).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.post("/runs/{run_id}/graph/until-pause/jobs")
+def start_run_until_pause_job_endpoint(run_id: str, request: RunUntilPauseRequest):
+    try:
+        get_run_dir(RUNS_ROOT, run_id)
+        return start_run_until_pause_job(RUNS_ROOT, run_id, request.max_steps).model_dump(mode="json")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
 

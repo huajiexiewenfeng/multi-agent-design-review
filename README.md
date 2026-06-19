@@ -17,6 +17,8 @@ npm --prefix frontend install
 npm run backend:dev
 ```
 
+This uses `python -m uvicorn` so it works even when the `uvicorn` console script is not on `PATH`.
+
 ## Run Frontend
 
 ```bash
@@ -25,15 +27,17 @@ npm run frontend:dev
 
 ## Local CLI Runners
 
-The Web UI can show and select `codex`, `claude-code`, and `antigravity` runners. By default they behave like manual runners. To make one run automatically, set a local command template before starting the backend:
+The Web UI can show and select `codex`, `claude-code`, and `antigravity` runners. If the expected local executables are found, the backend auto-registers command templates. You can override any template with an environment variable before starting the backend:
 
 ```powershell
-$env:MADR_CODEX_COMMAND = 'codex exec --full-auto "{prompt_file}"'
-$env:MADR_CLAUDE_CODE_COMMAND = 'claude -p "{prompt_file}"'
-$env:MADR_ANTIGRAVITY_COMMAND = 'antigravity run "{prompt_file}"'
+$env:MADR_CODEX_COMMAND = '"C:\Users\<you>\AppData\Roaming\npm\codex.cmd" exec --cd "{workspace}" --sandbox read-only -o "{output_file}" - < "{prompt_file}"'
+$env:MADR_CLAUDE_CODE_COMMAND = 'type "{prompt_file}" | "C:\Users\<you>\AppData\Roaming\npm\claude.cmd" -p --output-format text > "{output_file}"'
+$env:MADR_ANTIGRAVITY_COMMAND = '"D:\soft\Antigravity\bin\antigravity.cmd" chat --mode agent - < "{instruction_file}"'
 ```
 
-The command may use `{run_id}`, `{agent_id}`, `{stage}`, `{prompt_file}`, and `{output_file}`. If the command writes markdown to stdout, the system imports it as that agent's output. If the command writes directly to `{output_file}`, that file is imported instead. Logs are stored in `runs/<run_id>/runner_logs/<agent_id>/command.log`.
+The command may use `{run_id}`, `{agent_id}`, `{stage}`, `{prompt_file}`, `{output_file}`, `{instruction_file}`, and `{workspace}`. Codex CLI and Claude Code are treated as headless output-file runners. Antigravity is currently treated as a launch-and-wait runner: it receives an instruction file that includes the expected output path, and the Web UI shows the handoff until the file appears in `runs/<run_id>/inbox/<agent>/`.
+
+Logs are stored in `runs/<run_id>/runner_logs/<agent_id>/`.
 
 ## Test
 

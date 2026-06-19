@@ -3,12 +3,14 @@ export function RunControls({
   canFinalize = false,
   isRunning = false,
   onRunStep,
+  onRunUntilPause,
   onFinalize
 }: {
   disabled: boolean;
   canFinalize?: boolean;
   isRunning?: boolean;
   onRunStep: () => void;
+  onRunUntilPause: () => void;
   onFinalize: () => void;
 }) {
   return (
@@ -20,6 +22,9 @@ export function RunControls({
       <div className="run-control-actions">
         <button type="button" disabled={disabled || isRunning} onClick={onRunStep}>
           {isRunning ? "Running..." : "Run Graph Step"}
+        </button>
+        <button type="button" disabled={disabled || isRunning} onClick={onRunUntilPause}>
+          Run Until Pause
         </button>
         <button type="button" disabled={disabled || isRunning || !canFinalize} onClick={onFinalize}>
           Finalize Output

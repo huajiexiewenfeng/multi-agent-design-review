@@ -147,6 +147,49 @@ def test_runner_smoke_job_endpoints(tmp_path, monkeypatch) -> None:
     assert fetched.json()["runner_id"] == "codex"
 
 
+def test_run_until_pause_job_endpoint(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+
+    class FakeJob:
+        id = "job_until_pause_1"
+        run_id = "run_001"
+        status = "queued"
+        message = "Run-until-pause queued"
+        mode = "until_pause"
+        stop_reason = None
+        steps_run = 0
+        projection = None
+        error = None
+        started_at = None
+        finished_at = None
+        created_at = "2026-06-19T00:00:00+00:00"
+
+        def model_dump(self, mode="json"):
+            return {
+                "id": self.id,
+                "run_id": self.run_id,
+                "status": self.status,
+                "message": self.message,
+                "mode": self.mode,
+                "stop_reason": self.stop_reason,
+                "steps_run": self.steps_run,
+                "projection": self.projection,
+                "error": self.error,
+                "started_at": self.started_at,
+                "finished_at": self.finished_at,
+                "created_at": self.created_at,
+            }
+
+    monkeypatch.setattr(api_module, "start_run_until_pause_job", lambda runs_root, run_id, max_steps: FakeJob())
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(f"/api/runs/{created['run_id']}/graph/until-pause/jobs", json={"max_steps": 8})
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "until_pause"
+
+
 def test_finalize_run_endpoint_writes_output_docs_and_event(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
     client = TestClient(app)

@@ -16,6 +16,7 @@ import {
   saveClarifiedRequirement,
   skipAgent,
   startGraphStepJob,
+  startRunUntilPauseJob,
   startRunnerSmokeJob,
   submitAgentOutput,
   updateAgentConfig
@@ -154,6 +155,16 @@ export function RunListPage() {
     void pollGraphJob(selectedRun.run_id, job.id);
   }
 
+  async function handleRunUntilPause() {
+    if (!selectedRun) {
+      return;
+    }
+    const job = await startRunUntilPauseJob(selectedRun.run_id);
+    setActiveJob(job);
+    setStatusMessage("Run-until-pause started");
+    void pollGraphJob(selectedRun.run_id, job.id);
+  }
+
   async function pollGraphJob(runId: string, jobId: string) {
     for (;;) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
@@ -175,7 +186,11 @@ export function RunListPage() {
       setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
       setRunnerLogs(await getRunnerLogs(updated.run_id));
       setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
-      setStatusMessage("Graph step completed");
+      if (job.mode === "until_pause") {
+        setStatusMessage(`Paused: ${job.stop_reason ?? "unknown"} after ${job.steps_run ?? 0} step(s)`);
+      } else {
+        setStatusMessage("Graph step completed");
+      }
       setActiveJob(null);
       return;
     }
@@ -318,6 +333,7 @@ export function RunListPage() {
             isRunning={activeJob?.status === "queued" || activeJob?.status === "running"}
             canFinalize={selectedRun?.stage === "synthesis" && (selectedRun?.missing_inputs.length ?? 0) === 0}
             onRunStep={handleRunGraphStep}
+            onRunUntilPause={handleRunUntilPause}
             onFinalize={handleFinalize}
           />
           {statusMessage ? <p className="status-message">{statusMessage}</p> : null}

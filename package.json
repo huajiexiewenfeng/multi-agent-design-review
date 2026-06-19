@@ -1,7 +1,7 @@
 {
   "scripts": {
     "backend:test": "pytest -q",
-    "backend:dev": "uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000",
+    "backend:dev": "python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:test": "npm --prefix frontend test"
   }

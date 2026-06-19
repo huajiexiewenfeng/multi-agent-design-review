@@ -40,6 +40,9 @@ export type GraphJob = {
   status: "queued" | "running" | "succeeded" | "failed";
   message: string;
   projection?: RunProjection | null;
+  mode?: "step" | "until_pause";
+  stop_reason?: string | null;
+  steps_run?: number;
   error?: string | null;
   started_at?: string | null;
   finished_at?: string | null;

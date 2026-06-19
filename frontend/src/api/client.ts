@@ -149,6 +149,18 @@ export async function startGraphStepJob(runId: string, confirmed = true): Promis
   return response.json();
 }
 
+export async function startRunUntilPauseJob(runId: string, maxSteps = 10): Promise<GraphJob> {
+  const response = await fetch(`/api/runs/${runId}/graph/until-pause/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ max_steps: maxSteps })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to start run-until-pause job: ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function getGraphJob(runId: string, jobId: string): Promise<GraphJob> {
   const response = await fetch(`/api/runs/${runId}/jobs/${jobId}`);
   if (!response.ok) {

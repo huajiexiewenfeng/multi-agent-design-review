@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from backend.app.services.flow_control_service import run_until_pause
 from backend.app.services.graph_service import run_graph_step
 
 
@@ -15,6 +16,9 @@ class GraphJob(BaseModel):
     status: str
     message: str = ""
     projection: dict[str, object] | None = None
+    mode: str = "step"
+    stop_reason: str | None = None
+    steps_run: int = 0
     error: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
@@ -31,6 +35,20 @@ def start_graph_step_job(runs_root: Path, run_id: str, confirmed: bool) -> Graph
     with _LOCK:
         _JOBS[job.id] = job
     _EXECUTOR.submit(_run_job, runs_root, run_id, confirmed, job.id)
+    return job
+
+
+def start_run_until_pause_job(runs_root: Path, run_id: str, max_steps: int = 10) -> GraphJob:
+    job = GraphJob(
+        id=f"job_{uuid4().hex[:12]}",
+        run_id=run_id,
+        status="queued",
+        message="Run-until-pause queued",
+        mode="until_pause",
+    )
+    with _LOCK:
+        _JOBS[job.id] = job
+    _EXECUTOR.submit(_run_until_pause_job, runs_root, run_id, max_steps, job.id)
     return job
 
 
@@ -61,6 +79,7 @@ def _run_job(runs_root: Path, run_id: str, confirmed: bool, job_id: str) -> None
             status="succeeded",
             message="Graph step completed",
             projection=result["projection"],
+            steps_run=1,
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
     except Exception as exc:
@@ -68,6 +87,34 @@ def _run_job(runs_root: Path, run_id: str, confirmed: bool, job_id: str) -> None
             job_id,
             status="failed",
             message="Graph step failed",
+            error=str(exc),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+def _run_until_pause_job(runs_root: Path, run_id: str, max_steps: int, job_id: str) -> None:
+    _update_job(
+        job_id,
+        status="running",
+        message="Run-until-pause running",
+        started_at=datetime.now(timezone.utc).isoformat(),
+    )
+    try:
+        result = run_until_pause(runs_root, run_id, max_steps=max_steps)
+        _update_job(
+            job_id,
+            status="succeeded",
+            message=f"Paused: {result['stop_reason']}",
+            projection=result["projection"],
+            stop_reason=str(result["stop_reason"]),
+            steps_run=int(result["steps_run"]),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception as exc:
+        _update_job(
+            job_id,
+            status="failed",
+            message="Run-until-pause failed",
             error=str(exc),
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
