@@ -66,6 +66,38 @@ def test_get_runner_logs_returns_log_contents(tmp_path, monkeypatch) -> None:
     assert "exit_code: 1" in response.json()["logs"][0]["content"]
 
 
+def test_get_runner_handoffs_endpoint(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    monkeypatch.setattr(
+        api_module,
+        "get_runner_handoffs",
+        lambda run_dir: {"run_id": run_dir.name, "handoffs": [{"agent_id": "architect"}]},
+    )
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.get(f"/api/runs/{created['run_id']}/runner-handoffs")
+
+    assert response.status_code == 200
+    assert response.json()["handoffs"][0]["agent_id"] == "architect"
+
+
+def test_import_runner_handoffs_endpoint(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    monkeypatch.setattr(
+        api_module,
+        "import_waiting_runner_outputs",
+        lambda run_dir: {"projection": {"run_id": run_dir.name}, "imported": ["agents/architect/out.md"], "errors": []},
+    )
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.post(f"/api/runs/{created['run_id']}/runner-handoffs/import")
+
+    assert response.status_code == 200
+    assert response.json()["imported"] == ["agents/architect/out.md"]
+
+
 def test_runner_smoke_test_endpoint_returns_result(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
     monkeypatch.setattr(

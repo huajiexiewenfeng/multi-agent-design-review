@@ -14,6 +14,7 @@ from backend.app.services.human_control_service import advance_stage, revert_sta
 from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
 from backend.app.services.job_service import get_job, start_graph_step_job
 from backend.app.services.run_service import create_run, get_run_dir, list_runs
+from backend.app.services.runner_handoff_service import get_runner_handoffs, import_waiting_runner_outputs
 from backend.app.services.runner_log_service import get_runner_logs
 from backend.app.services.runner_registry_service import get_runner_health
 from backend.app.services.runner_smoke_job_service import get_runner_smoke_job, start_runner_smoke_job
@@ -127,6 +128,22 @@ def get_stage_artifacts_endpoint(run_id: str, stage: Stage):
 def get_runner_logs_endpoint(run_id: str):
     try:
         return get_runner_logs(get_run_dir(RUNS_ROOT, run_id))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.get("/runs/{run_id}/runner-handoffs")
+def get_runner_handoffs_endpoint(run_id: str):
+    try:
+        return get_runner_handoffs(get_run_dir(RUNS_ROOT, run_id))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.post("/runs/{run_id}/runner-handoffs/import")
+def import_runner_handoffs_endpoint(run_id: str):
+    try:
+        return import_waiting_runner_outputs(get_run_dir(RUNS_ROOT, run_id))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
 

@@ -1,5 +1,7 @@
 import type {
   GraphJob,
+  RunnerHandoff,
+  RunnerHandoffImportResult,
   RunnerHealth,
   RunnerLog,
   RunnerSmokeJob,
@@ -77,6 +79,23 @@ export async function getRunnerLogs(runId: string): Promise<RunnerLog[]> {
   }
   const body = await response.json();
   return body.logs;
+}
+
+export async function getRunnerHandoffs(runId: string): Promise<RunnerHandoff[]> {
+  const response = await fetch(`/api/runs/${runId}/runner-handoffs`);
+  if (!response.ok) {
+    throw new Error(`Failed to load runner handoffs: ${response.status}`);
+  }
+  const body = await response.json();
+  return body.handoffs;
+}
+
+export async function importRunnerHandoffs(runId: string): Promise<RunnerHandoffImportResult> {
+  const response = await fetch(`/api/runs/${runId}/runner-handoffs/import`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`Failed to import runner handoffs: ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function getStageArtifacts(runId: string, stage: string): Promise<StageArtifact[]> {

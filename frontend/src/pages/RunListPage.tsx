@@ -6,9 +6,11 @@ import {
   getRun,
   getGraphJob,
   getRunners,
+  getRunnerHandoffs,
   getRunnerLogs,
   getRunnerSmokeJob,
   getStageArtifacts,
+  importRunnerHandoffs,
   listRuns,
   saveClarificationAnswers,
   saveClarifiedRequirement,
@@ -21,12 +23,14 @@ import {
 import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
 import { RunControls } from "../components/RunControls";
 import { RunnerHealthPanel } from "../components/RunnerHealthPanel";
+import { RunnerHandoffsPanel } from "../components/RunnerHandoffsPanel";
 import { RunnerLogsPanel } from "../components/RunnerLogsPanel";
 import { StageBoard } from "../components/StageBoard";
 import { StageDetailPanel } from "../components/StageDetailPanel";
 import { Timeline } from "../components/Timeline";
 import type {
   GraphJob,
+  RunnerHandoff,
   RunnerHealth,
   RunnerLog,
   RunnerSmokeJob,
@@ -47,10 +51,12 @@ export function RunListPage() {
   const [stageArtifacts, setStageArtifacts] = useState<StageArtifact[]>([]);
   const [activeJob, setActiveJob] = useState<GraphJob | null>(null);
   const [runnerHealth, setRunnerHealth] = useState<RunnerHealth[]>([]);
+  const [runnerHandoffs, setRunnerHandoffs] = useState<RunnerHandoff[]>([]);
   const [runnerLogs, setRunnerLogs] = useState<RunnerLog[]>([]);
   const [runnerSmokeResults, setRunnerSmokeResults] = useState<Record<string, RunnerSmokeResult>>({});
   const [runnerSmokeJobs, setRunnerSmokeJobs] = useState<Record<string, RunnerSmokeJob>>({});
   const [testingRunnerId, setTestingRunnerId] = useState<string | null>(null);
+  const [isImportingHandoffs, setIsImportingHandoffs] = useState(false);
 
   useEffect(() => {
     getRunners().then(setRunnerHealth);
@@ -59,6 +65,7 @@ export function RunListPage() {
       setSelectedRun(loadedRuns[0] ?? null);
       if (loadedRuns[0]) {
         getEvents(loadedRuns[0].run_id).then(setEvents);
+        getRunnerHandoffs(loadedRuns[0].run_id).then(setRunnerHandoffs);
         getRunnerLogs(loadedRuns[0].run_id).then(setRunnerLogs);
         setSelectedStage(loadedRuns[0].stage);
         getStageArtifacts(loadedRuns[0].run_id, loadedRuns[0].stage).then(setStageArtifacts);
@@ -70,6 +77,7 @@ export function RunListPage() {
     setSelectedRun(run);
     setSelectedStage(run.stage);
     setEvents(await getEvents(run.run_id));
+    setRunnerHandoffs(await getRunnerHandoffs(run.run_id));
     setRunnerLogs(await getRunnerLogs(run.run_id));
     setStageArtifacts(await getStageArtifacts(run.run_id, run.stage));
   }
@@ -90,6 +98,7 @@ export function RunListPage() {
     setSelectedRun(created);
     setSelectedStage(created.stage);
     setEvents(await getEvents(created.run_id));
+    setRunnerHandoffs(await getRunnerHandoffs(created.run_id));
     setRunnerLogs(await getRunnerLogs(created.run_id));
     setStageArtifacts(await getStageArtifacts(created.run_id, created.stage));
     setStatusMessage("Run created");
@@ -103,6 +112,7 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, selectedStage));
     setStatusMessage(`${agentId} config saved`);
@@ -162,6 +172,7 @@ export function RunListPage() {
       setSelectedStage(updated.stage);
       setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
       setEvents(await getEvents(updated.run_id));
+      setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
       setRunnerLogs(await getRunnerLogs(updated.run_id));
       setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
       setStatusMessage("Graph step completed");
@@ -179,6 +190,7 @@ export function RunListPage() {
     setSelectedStage("synthesis");
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, "synthesis"));
     setStatusMessage("Final output generated");
@@ -193,6 +205,7 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, stage));
     setStatusMessage(`${agentId} output submitted`);
@@ -203,9 +216,35 @@ export function RunListPage() {
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
+    setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
     setStageArtifacts(await getStageArtifacts(updated.run_id, stage));
     setStatusMessage(message);
+  }
+
+  async function handleImportRunnerHandoffs() {
+    if (!selectedRun) {
+      return;
+    }
+    setIsImportingHandoffs(true);
+    try {
+      const result = await importRunnerHandoffs(selectedRun.run_id);
+      const updated = result.projection;
+      setSelectedRun(updated);
+      setSelectedStage(updated.stage);
+      setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
+      setEvents(await getEvents(updated.run_id));
+      setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
+      setRunnerLogs(await getRunnerLogs(updated.run_id));
+      setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
+      setStatusMessage(
+        result.errors.length > 0
+          ? `Checked handoffs: ${result.errors.length} error(s)`
+          : `Imported ${result.imported.length} waiting output(s)`
+      );
+    } finally {
+      setIsImportingHandoffs(false);
+    }
   }
 
   async function handleSaveAnswers(answers: Record<string, string>) {
@@ -300,6 +339,11 @@ export function RunListPage() {
             onSkipAgent={handleSkipAgent}
           />
           <RunnerLogsPanel logs={runnerLogs} />
+          <RunnerHandoffsPanel
+            handoffs={runnerHandoffs}
+            isImporting={isImportingHandoffs}
+            onImport={handleImportRunnerHandoffs}
+          />
           <RunnerHealthPanel
             runners={runnerHealth}
             smokeResults={runnerSmokeResults}

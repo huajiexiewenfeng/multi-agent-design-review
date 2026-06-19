@@ -80,10 +80,7 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text(render_prompt(stage, agent_id, run_dir), encoding="utf-8")
     if _has_stage_inbox_markdown(run_dir, agent_id, stage):
-        if stage == Stage.SYNTHESIS:
-            _import_synthesis(run_dir)
-        else:
-            import_from_inbox(run_dir, agent_id, stage)
+        import_existing_stage_output(run_dir, agent_id, stage)
         return
     runner = get_runner(runner_name)
     result = runner.run(
@@ -139,3 +136,10 @@ def _has_stage_inbox_markdown(run_dir: Path, agent_id: str, stage: Stage) -> boo
         any(hint in path.stem for hint in stage_hints) or path.stem.endswith("_manual")
         for path in (run_dir / "inbox" / agent_id).glob("*.md")
     )
+
+
+def import_existing_stage_output(run_dir: Path, agent_id: str, stage: Stage) -> Path | None:
+    if stage == Stage.SYNTHESIS:
+        _import_synthesis(run_dir)
+        return None
+    return import_from_inbox(run_dir, agent_id, stage)

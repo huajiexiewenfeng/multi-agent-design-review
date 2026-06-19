@@ -418,6 +418,7 @@ textarea {
 
 .settings-panel,
 .runner-health-panel,
+.runner-handoffs-panel,
 .runner-logs-panel {
   border: 1px solid #d8dde5;
   border-radius: 8px;
@@ -564,6 +565,28 @@ textarea {
   gap: 10px;
 }
 
+.runner-handoff-list {
+  display: grid;
+  gap: 10px;
+}
+
+.runner-handoffs-panel > .secondary-action {
+  justify-self: start;
+  min-height: 34px;
+  border: 1px solid #1c6b5f;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1c6b5f;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.runner-handoffs-panel > .secondary-action:disabled {
+  border-color: #cfd6df;
+  color: #7a8492;
+}
+
 .runner-health-item {
   display: grid;
   gap: 8px;
@@ -640,6 +663,58 @@ textarea {
 
 .runner-smoke-result span {
   overflow-wrap: anywhere;
+}
+
+.runner-handoff-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #edd3a6;
+  border-radius: 8px;
+  background: #fff8eb;
+  padding: 10px;
+}
+
+.runner-handoff-item header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.runner-handoff-item header strong,
+.runner-handoff-item header span,
+.handoff-path {
+  color: #566273;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.runner-handoff-item p {
+  margin: 0;
+  color: #344154;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.runner-handoff-item code {
+  color: #1e293b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.runner-handoff-item pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 8px;
+  background: #18202b;
+  color: #edf2f7;
+  padding: 12px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .runner-log-item {

@@ -64,6 +64,24 @@ export type RunnerLog = {
   content: string;
 };
 
+export type RunnerHandoff = {
+  event_id: string;
+  agent_id: string;
+  stage: string;
+  message: string;
+  related_file: string | null;
+  instruction_file: string | null;
+  instruction: string;
+  output_file: string;
+  metadata: Record<string, unknown>;
+};
+
+export type RunnerHandoffImportResult = {
+  projection: RunProjection;
+  imported: string[];
+  errors: Array<{ agent_id: string; stage: string; error: string }>;
+};
+
 export type RunnerSmokeResult = {
   runner_id: string;
   status: "succeeded" | "failed";
