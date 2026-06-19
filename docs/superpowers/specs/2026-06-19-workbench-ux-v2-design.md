@@ -488,7 +488,72 @@ Existing components to demote or refactor:
 - `AgentSettingsPanel` becomes `AgentSettingsDialog`.
 - `RunControls` becomes top-level command buttons plus `RunStatusBar`.
 
-## 7. Visual Design Rules
+## 7. Design Reference Contract
+
+This section is a hard reference contract for implementation. It prevents the v2 workbench from drifting into a generic component-library demo.
+
+### 7.1 Reference Stack
+
+The intended design blend is:
+
+- Primary visual feel: `shadcn-ui/ui`.
+- Accessible overlays: `Radix Primitives` interaction patterns for dialogs, popovers, dropdown menus, tooltips, and focus behavior.
+- Operational density: a small amount of `Ant Design` information architecture for stage progress, queue rows, artifact tables, and status-heavy panels.
+- Conversation surface: custom implementation based on the user-provided v2 mockup, not a generic chat component from a UI kit.
+- Icons: `lucide-react`.
+
+### 7.2 What To Copy
+
+From shadcn-style interfaces:
+
+- calm neutral surfaces
+- clear borders
+- compact controls
+- small-radius buttons and inputs
+- high-quality dialog, dropdown, tab, toast, and command patterns
+- restrained typography and spacing
+
+From Radix-like primitives:
+
+- keyboard-reachable menus
+- focus trapping in dialogs
+- stable popover positioning
+- accessible labels and ARIA states
+- tooltips for icon-only controls
+
+From Ant Design only:
+
+- dense workflow status scanning
+- queue/list/table information structure
+- artifact metadata layout
+- clear disabled-state reasons
+
+### 7.3 What Not To Copy
+
+Do not copy Ant Design or MUI as the overall visual language. The workbench should not feel like a heavy enterprise admin template.
+
+Do not use Magic UI-style animated effects as the primary personality. Motion can be used for subtle status transitions, but not as decoration.
+
+Do not turn the project into a component gallery. Every visible component must serve the run workflow: understand state, read agent work, answer blockers, configure agents, or open outputs.
+
+Do not replace the user-provided v2 information architecture. The target remains:
+
+- left: Runs
+- top: stage progress and run commands
+- center: agent/human conversation
+- right: execution state, actions, artifacts, and final outputs
+
+### 7.4 Product Feel
+
+The product should feel like:
+
+> shadcn-quality quiet tooling, with Linear/Slack-style workflow density, applied to a local-first multi-agent review room.
+
+The shortest implementation test:
+
+> If it looks like an AntD admin dashboard, it is too heavy. If it looks like a Magic UI landing demo, it is too decorative. If it looks like the provided v2 mockup with shadcn-level polish, it is on target.
+
+## 8. Visual Design Rules
 
 The UI should feel like a focused local workbench, not a marketing page.
 
@@ -521,7 +586,7 @@ Rules:
 - Use tooltips for icon-only buttons.
 - Avoid nesting cards inside cards; right panel rows can be bordered list items.
 
-## 8. Accessibility And Responsive Behavior
+## 9. Accessibility And Responsive Behavior
 
 Desktop is the primary target for MVP.
 
@@ -540,7 +605,7 @@ Responsive behavior:
 - RightExecutionPanel collapses to tabs or drawer.
 - ConversationStream remains the primary view.
 
-## 9. Implementation Slices
+## 10. Implementation Slices
 
 ### Slice 1. Layout Shell
 
@@ -591,7 +656,7 @@ Responsive behavior:
 - Verify desktop screenshot against the v2 mockup.
 - Check mobile/narrow behavior for non-overlap.
 
-## 10. Non-Goals
+## 11. Non-Goals
 
 This v2 design does not add:
 
@@ -605,7 +670,7 @@ This v2 design does not add:
 
 The v2 goal is to make the current local-first workflow usable and product-like.
 
-## 11. Acceptance Criteria
+## 12. Acceptance Criteria
 
 The v2 UI is acceptable when:
 
