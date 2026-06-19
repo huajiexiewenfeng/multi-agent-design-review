@@ -116,6 +116,14 @@ export async function getStageArtifacts(runId: string, stage: string): Promise<S
   return body.artifacts;
 }
 
+export async function readRunFile(runId: string, path: string): Promise<{ path: string; content: string }> {
+  const response = await fetch(`/api/runs/${runId}/files?path=${encodeURIComponent(path)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to read run file: ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function updateAgentConfig(
   runId: string,
   agentId: string,

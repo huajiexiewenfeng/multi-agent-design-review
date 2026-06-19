@@ -129,6 +129,30 @@ def get_stage_artifacts_endpoint(run_id: str, stage: Stage):
         raise HTTPException(status_code=404, detail="Run not found") from exc
 
 
+@router.get("/runs/{run_id}/files")
+def read_run_file_endpoint(run_id: str, path: str):
+    try:
+        run_dir = get_run_dir(RUNS_ROOT, run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    requested_path = Path(path)
+    if requested_path.is_absolute():
+        raise HTTPException(status_code=400, detail="Absolute paths are not allowed")
+
+    root = run_dir.resolve()
+    target = (run_dir / requested_path).resolve()
+    try:
+        normalized_path = target.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Path must stay inside the run directory") from exc
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return {"path": normalized_path, "content": target.read_text(encoding="utf-8")}
+
+
 @router.get("/runs/{run_id}/runner-logs")
 def get_runner_logs_endpoint(run_id: str):
     try:

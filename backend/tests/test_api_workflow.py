@@ -228,3 +228,31 @@ def test_finalize_run_endpoint_writes_output_docs_and_event(tmp_path, monkeypatc
     paths = [artifact["path"] for artifact in artifacts]
     assert "output/design_doc.md" in paths
     assert "output/execution_doc.md" in paths
+
+
+def test_read_run_file_endpoint_returns_file_content(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+    run_id = created["run_id"]
+    run_dir = tmp_path / run_id
+    (run_dir / "output").mkdir(parents=True, exist_ok=True)
+    (run_dir / "output" / "design_doc.md").write_text("# Design Doc\n\nReady.", encoding="utf-8")
+
+    response = client.get(f"/api/runs/{run_id}/files", params={"path": "output/design_doc.md"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "path": "output/design_doc.md",
+        "content": "# Design Doc\n\nReady.",
+    }
+
+
+def test_read_run_file_endpoint_rejects_path_traversal(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
+
+    response = client.get(f"/api/runs/{created['run_id']}/files", params={"path": "../secret.md"})
+
+    assert response.status_code == 400

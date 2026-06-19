@@ -13,6 +13,7 @@ import {
   getStageArtifacts,
   importRunnerHandoffs,
   listRuns,
+  readRunFile,
   saveClarificationAnswers,
   saveClarifiedRequirement,
   skipAgent,
@@ -22,15 +23,17 @@ import {
   submitAgentOutput,
   updateAgentConfig
 } from "../api/client";
-import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
+import { AgentSettingsDialog } from "../components/AgentSettingsDialog";
+import { ConversationStream } from "../components/ConversationStream";
 import { FlowVerificationPanel } from "../components/FlowVerificationPanel";
+import { RightExecutionPanel } from "../components/RightExecutionPanel";
 import { RunControls } from "../components/RunControls";
+import { RunStatusBar } from "../components/RunStatusBar";
 import { RunnerHealthPanel } from "../components/RunnerHealthPanel";
 import { RunnerHandoffsPanel } from "../components/RunnerHandoffsPanel";
 import { RunnerLogsPanel } from "../components/RunnerLogsPanel";
-import { StageBoard } from "../components/StageBoard";
+import { StageProgressRail } from "../components/StageProgressRail";
 import { StageDetailPanel } from "../components/StageDetailPanel";
-import { Timeline } from "../components/Timeline";
 import type {
   FlowVerification,
   GraphJob,
@@ -43,6 +46,11 @@ import type {
   StageArtifact,
   TimelineEvent
 } from "../types/run";
+import {
+  buildWorkbenchViewModel,
+  type FinalOutputItem,
+  type HumanActionItem
+} from "../viewModels/workbenchViewModel";
 
 export function RunListPage() {
   const [runs, setRuns] = useState<RunProjection[]>([]);
@@ -62,6 +70,7 @@ export function RunListPage() {
   const [runnerSmokeJobs, setRunnerSmokeJobs] = useState<Record<string, RunnerSmokeJob>>({});
   const [testingRunnerId, setTestingRunnerId] = useState<string | null>(null);
   const [isImportingHandoffs, setIsImportingHandoffs] = useState(false);
+  const [finalOutputPreviews, setFinalOutputPreviews] = useState<Record<string, string>>({});
 
   useEffect(() => {
     getRunners().then(setRunnerHealth);
@@ -82,6 +91,7 @@ export function RunListPage() {
   async function selectRun(run: RunProjection) {
     setSelectedRun(run);
     setSelectedStage(run.stage);
+    setFinalOutputPreviews({});
     setEvents(await getEvents(run.run_id));
     setFlowVerification(await getFlowVerification(run.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(run.run_id));
@@ -291,6 +301,50 @@ export function RunListPage() {
     await refreshRun(selectedRun.run_id, selectedStage, "Clarified requirement saved");
   }
 
+  async function handleSubmitHumanInput(action: HumanActionItem, content: string) {
+    if (action.missingInput.includes("clarified_requirement")) {
+      await handleSaveRequirement(content);
+      return;
+    }
+    await handleSaveAnswers({ human_response: content });
+  }
+
+  async function handleOpenFinalOutput(output: FinalOutputItem) {
+    if (!selectedRun) {
+      return;
+    }
+    const file = await readRunFile(selectedRun.run_id, output.path);
+    setFinalOutputPreviews((current) => ({ ...current, [file.path]: file.content }));
+    setStatusMessage(`Opened ${file.path}`);
+  }
+
+  async function handleCopyFinalOutput(output: FinalOutputItem) {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(output.path);
+      setStatusMessage(`Copied ${output.path}`);
+      return;
+    }
+    setStatusMessage(`Final output path: ${output.path}`);
+  }
+
+  async function handleDownloadFinalOutput(output: FinalOutputItem) {
+    if (!selectedRun) {
+      return;
+    }
+    const file =
+      finalOutputPreviews[output.path] !== undefined
+        ? { path: output.path, content: finalOutputPreviews[output.path] }
+        : await readRunFile(selectedRun.run_id, output.path);
+    const blob = new Blob([file.content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.path.split("/").pop() ?? "output.md";
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatusMessage(`Downloaded ${file.path}`);
+  }
+
   async function handleSkipAgent(agentId: string, stage: string, reason: string) {
     if (!selectedRun) {
       return;
@@ -299,13 +353,36 @@ export function RunListPage() {
     await refreshRun(selectedRun.run_id, stage, `${agentId} skipped`);
   }
 
+  const viewModel = buildWorkbenchViewModel({
+    run: selectedRun,
+    events,
+    artifacts: stageArtifacts,
+    runnerHandoffs,
+    runnerLogs,
+    flowVerification,
+    activeJob
+  });
+  const currentStageLabel =
+    viewModel.stageRail.find((stage) => stage.id === selectedRun?.stage)?.label ?? selectedRun?.stage ?? "Requirement";
+  const isRunning = activeJob?.status === "queued" || activeJob?.status === "running";
+
   return (
-    <main className="workbench">
-      <header className="workbench-header">
+    <main className="workbench workbench-v2">
+      <header className="workbench-header app-header">
         <div>
-          <h1>Multi-Agent Design Review</h1>
-          <p>Run the design review flow from one local Web UI.</p>
+          <h1>Design Review Workbench</h1>
+          <p>Local-first multi-agent review room.</p>
         </div>
+        <span className="local-first-badge">Local-first</span>
+        <AgentSettingsDialog agents={selectedRun?.agents ?? []} onSave={handleSaveAgent} />
+        <RunControls
+          disabled={!selectedRun}
+          isRunning={isRunning}
+          canFinalize={selectedRun?.stage === "synthesis" && (selectedRun?.missing_inputs.length ?? 0) === 0}
+          onRunStep={handleRunGraphStep}
+          onRunUntilPause={handleRunUntilPause}
+          onFinalize={handleFinalize}
+        />
       </header>
 
       <div className="workbench-layout">
@@ -340,51 +417,69 @@ export function RunListPage() {
           </div>
         </aside>
 
-        <section className="run-workspace">
-          <RunControls
-            disabled={!selectedRun}
-            isRunning={activeJob?.status === "queued" || activeJob?.status === "running"}
-            canFinalize={selectedRun?.stage === "synthesis" && (selectedRun?.missing_inputs.length ?? 0) === 0}
-            onRunStep={handleRunGraphStep}
-            onRunUntilPause={handleRunUntilPause}
-            onFinalize={handleFinalize}
-          />
-          {statusMessage ? <p className="status-message">{statusMessage}</p> : null}
-          <StageBoard
-            currentStage={selectedRun?.stage ?? "requirement"}
-            agents={selectedRun?.agents}
-            missingInputs={selectedRun?.missing_inputs ?? []}
+        <section className="run-workspace run-workspace-v2">
+          <StageProgressRail
+            stages={viewModel.stageRail}
             selectedStage={selectedStage}
             onSelectStage={selectStage}
           />
-          <StageDetailPanel
-            stage={selectedStage}
-            artifacts={stageArtifacts}
-            missingInputs={selectedStage === selectedRun?.stage ? selectedRun?.missing_inputs ?? [] : []}
-            agents={selectedRun?.agents ?? []}
-            onSubmitOutput={handleSubmitOutput}
-            onSaveAnswers={handleSaveAnswers}
-            onSaveRequirement={handleSaveRequirement}
-            onSkipAgent={handleSkipAgent}
+          <RunStatusBar
+            currentStageLabel={currentStageLabel}
+            humanActionCount={viewModel.humanActions.length}
+            statusMessage={statusMessage}
+            jobStatus={viewModel.jobStatus}
           />
-          <RunnerLogsPanel logs={runnerLogs} />
-          <RunnerHandoffsPanel
-            handoffs={runnerHandoffs}
-            isImporting={isImportingHandoffs}
-            onImport={handleImportRunnerHandoffs}
-          />
-          <FlowVerificationPanel verification={flowVerification} />
-          <RunnerHealthPanel
-            runners={runnerHealth}
-            smokeResults={runnerSmokeResults}
-            smokeJobs={runnerSmokeJobs}
-            testingRunnerId={testingRunnerId}
-            onSmokeTest={handleRunnerSmokeTest}
-          />
-          {selectedRun?.agents ? <AgentSettingsPanel agents={selectedRun.agents} onSave={handleSaveAgent} /> : null}
+          <ConversationStream messages={viewModel.conversation} />
+
+          <details className="advanced-workflow-tools">
+            <summary>Advanced workflow tools</summary>
+            <StageDetailPanel
+              stage={selectedStage}
+              artifacts={stageArtifacts}
+              missingInputs={selectedStage === selectedRun?.stage ? selectedRun?.missing_inputs ?? [] : []}
+              agents={selectedRun?.agents ?? []}
+              onSubmitOutput={handleSubmitOutput}
+              onSaveAnswers={handleSaveAnswers}
+              onSaveRequirement={handleSaveRequirement}
+              onSkipAgent={handleSkipAgent}
+            />
+          </details>
         </section>
 
-        <Timeline events={events} />
+        <div className="workbench-side-column">
+          <RightExecutionPanel
+            agentQueue={viewModel.agentQueue}
+            humanActions={viewModel.humanActions}
+            artifacts={viewModel.artifacts}
+            finalOutputs={viewModel.finalOutputs}
+            finalOutputPreviews={finalOutputPreviews}
+            canFinalize={selectedRun?.stage === "synthesis" && (selectedRun?.missing_inputs.length ?? 0) === 0}
+            isImportingHandoffs={isImportingHandoffs}
+            onFinalize={handleFinalize}
+            onImportHandoffs={handleImportRunnerHandoffs}
+            onSubmitHumanInput={handleSubmitHumanInput}
+            onOpenFinalOutput={handleOpenFinalOutput}
+            onCopyFinalOutput={handleCopyFinalOutput}
+            onDownloadFinalOutput={handleDownloadFinalOutput}
+          />
+          <details className="debug-tools">
+            <summary>Debug tools</summary>
+            <RunnerHandoffsPanel
+              handoffs={runnerHandoffs}
+              isImporting={isImportingHandoffs}
+              onImport={handleImportRunnerHandoffs}
+            />
+            <RunnerLogsPanel logs={runnerLogs} />
+            <FlowVerificationPanel verification={flowVerification} />
+            <RunnerHealthPanel
+              runners={runnerHealth}
+              smokeResults={runnerSmokeResults}
+              smokeJobs={runnerSmokeJobs}
+              testingRunnerId={testingRunnerId}
+              onSmokeTest={handleRunnerSmokeTest}
+            />
+          </details>
+        </div>
       </div>
     </main>
   );
