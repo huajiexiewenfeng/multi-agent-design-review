@@ -12,6 +12,10 @@ Do not use tools or write files. Return only Markdown with the exact headings re
 
 {drafts}
 
+## Human Change Requests
+
+{discussion_requests}
+
 Return:
 
 ## Review Summary

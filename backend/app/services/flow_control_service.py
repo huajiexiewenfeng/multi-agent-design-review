@@ -41,6 +41,8 @@ def _stop_reason(runs_root: Path, run_id: str, before_stage: str, projection: di
         return "runner_handoff"
     if stage == Stage.CLARIFIED_REQUIREMENT.value and missing_inputs:
         return "human_input"
+    if stage == Stage.SYNTHESIS.value and "input/final_approval.md" in missing_inputs:
+        return "human_final_approval"
     if stage == Stage.SYNTHESIS.value and not missing_inputs:
         return "ready_to_finalize"
     if stage == before_stage and status == StageStatus.WAITING_INPUT.value and missing_inputs:

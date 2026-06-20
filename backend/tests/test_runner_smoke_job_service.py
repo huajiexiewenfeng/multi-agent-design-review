@@ -7,8 +7,9 @@ def test_runner_smoke_job_runs_in_background(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setattr(
         runner_smoke_job_service,
         "run_runner_smoke_test",
-        lambda runner_id, runs_root: {
+        lambda runner_id, runs_root, model=None: {
             "runner_id": runner_id,
+            "model": model,
             "status": "succeeded",
             "exit_code": 0,
             "output_content": "MADR_RUNNER_SMOKE_OK",
@@ -18,9 +19,10 @@ def test_runner_smoke_job_runs_in_background(tmp_path: Path, monkeypatch) -> Non
         },
     )
 
-    job = runner_smoke_job_service.start_runner_smoke_job(tmp_path, "codex")
+    job = runner_smoke_job_service.start_runner_smoke_job(tmp_path, "codex", model="gpt-5.5")
     result = runner_smoke_job_service.get_runner_smoke_job(job.id)
 
     assert result.runner_id == "codex"
+    assert result.model == "gpt-5.5"
     assert result.status in {"queued", "running", "succeeded"}
     assert result.message

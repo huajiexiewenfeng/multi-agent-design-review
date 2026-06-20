@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from backend.app.models import ActorType, Stage
 from backend.app.services.event_service import append_event
+from backend.app.services.event_service import read_events
 from backend.app.services.file_service import run_lock, write_json, write_text
 from backend.app.services.state_service import recompute_state
 
@@ -50,16 +51,29 @@ def create_run(runs_root: Path, title: str, requirement: str):
             {"title": title},
         )
         projection = recompute_state(run_dir)
-        write_json(run_dir / "run.json", projection.model_dump(mode="json") | {"title": title})
+        write_json(run_dir / "run.json", projection.model_dump(mode="json"))
         return projection
+
+
+def _title_from_events(run_dir: Path) -> str:
+    for event in read_events(run_dir):
+        if event.get("event_type") != "run_created":
+            continue
+        metadata = event.get("metadata")
+        if isinstance(metadata, dict) and isinstance(metadata.get("title"), str):
+            return str(metadata["title"])
+    return run_dir.name
 
 
 def list_runs(runs_root: Path) -> list[dict[str, object]]:
     if not runs_root.exists():
         return []
     runs = []
-    for run_json in sorted(runs_root.glob("*/run.json")):
-        runs.append(json.loads(run_json.read_text(encoding="utf-8")))
+    for run_json in sorted(runs_root.glob("*/run.json"), key=lambda path: path.stat().st_mtime_ns, reverse=True):
+        run = json.loads(run_json.read_text(encoding="utf-8"))
+        if not isinstance(run.get("title"), str) or not str(run["title"]).strip():
+            run["title"] = _title_from_events(run_json.parent)
+        runs.append(run)
     return runs
 
 

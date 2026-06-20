@@ -2,12 +2,14 @@ export type AgentProjection = {
   id: string;
   label: string;
   runner: string;
+  model?: string;
   llm_name: string;
   stages: string[];
 };
 
 export type RunProjection = {
   run_id: string;
+  title?: string;
   stage: string;
   status: string;
   missing_inputs: string[];
@@ -87,7 +89,8 @@ export type RunnerHandoffImportResult = {
 
 export type RunnerSmokeResult = {
   runner_id: string;
-  status: "succeeded" | "failed";
+  model?: string | null;
+  status: "succeeded" | "failed" | "waiting_input" | "unconfigured" | "interactive_only";
   exit_code: number | null;
   output_content: string;
   log_content: string;
@@ -98,7 +101,8 @@ export type RunnerSmokeResult = {
 export type RunnerSmokeJob = {
   id: string;
   runner_id: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+  model?: string | null;
+  status: "queued" | "running" | "succeeded" | "failed" | "waiting_input" | "unconfigured" | "interactive_only";
   message: string;
   result?: RunnerSmokeResult | null;
   error?: string | null;

@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 
 import yaml
 
@@ -15,8 +16,8 @@ from backend.app.services.workflow_service import import_from_inbox
 from backend.app.runners.command import CommandRunner
 
 
-def get_runner(name: str):
-    command = resolve_runner_command(name)
+def get_runner(name: str, model: str | None = None):
+    command = resolve_runner_command(name, model)
     if name == "antigravity" and command:
         return AntigravityRunner(command)
     if command:
@@ -35,18 +36,20 @@ def get_runner(name: str):
     return runners[name]
 
 
-def _runner_name_for_agent(run_dir: Path, agent_id: str) -> str:
+def _runner_config_for_agent(run_dir: Path, agent_id: str) -> tuple[str, str | None]:
     runners_file = run_dir / "runners.yaml"
     if not runners_file.is_file():
-        return "mock"
+        return "mock", None
 
     raw = yaml.safe_load(runners_file.read_text(encoding="utf-8")) or {}
     value = raw.get(agent_id, "mock")
     if isinstance(value, str):
-        return value
+        return value, None
     if isinstance(value, dict):
-        return str(value.get("runner", "mock"))
-    return "mock"
+        runner = str(value.get("runner", "mock"))
+        model = value.get("model") or value.get("llm_name")
+        return runner, str(model) if model else None
+    return "mock", None
 
 
 def _import_synthesis(run_dir: Path) -> None:
@@ -60,15 +63,27 @@ def _import_synthesis(run_dir: Path) -> None:
     execution_start = content.index(execution_marker)
     synthesizer_dir = run_dir / "agents" / "synthesizer"
     synthesizer_dir.mkdir(parents=True, exist_ok=True)
-    (synthesizer_dir / "design_doc.v1.md").write_text(
+    version = _next_synthesis_version(synthesizer_dir)
+    (synthesizer_dir / f"design_doc.v{version}.md").write_text(
         content[design_start:execution_start].strip() + "\n",
         encoding="utf-8",
     )
-    (synthesizer_dir / "execution_doc.v1.md").write_text(content[execution_start:].strip() + "\n", encoding="utf-8")
+    (synthesizer_dir / f"execution_doc.v{version}.md").write_text(content[execution_start:].strip() + "\n", encoding="utf-8")
+
+
+def _next_synthesis_version(synthesizer_dir: Path) -> int:
+    versions: list[int] = []
+    pattern = re.compile(r"^design_doc\.v(\d+)\.md$")
+    for path in synthesizer_dir.glob("design_doc.v*.md"):
+        match = pattern.match(path.name)
+        if match:
+            versions.append(int(match.group(1)))
+    return max(versions, default=0) + 1
 
 
 def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str | None = None) -> None:
-    runner_name = runner_name or _runner_name_for_agent(run_dir, agent_id)
+    configured_runner, configured_model = _runner_config_for_agent(run_dir, agent_id)
+    runner_name = runner_name or configured_runner
     prompt_name = {
         Stage.CLARIFICATION: "clarification_prompt.md",
         Stage.DRAFT_DESIGN: "draft_prompt.md",
@@ -82,7 +97,7 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
     if _has_stage_inbox_markdown(run_dir, agent_id, stage):
         import_existing_stage_output(run_dir, agent_id, stage)
         return
-    runner = get_runner(runner_name)
+    runner = get_runner(runner_name, configured_model)
     result = runner.run(
         run_id=run_dir.name,
         agent_id=agent_id,
@@ -105,6 +120,7 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
             _first_runner_log(run_dir, agent_id),
             {
                 "runner": runner_name,
+                "model": configured_model,
                 "status": result.status,
                 "exit_code": result.exit_code,
                 "produced_files": result.produced_files,
@@ -121,6 +137,7 @@ def run_agent_stage(run_dir: Path, agent_id: str, stage: Stage, runner_name: str
         _first_runner_log(run_dir, agent_id),
         {
             "runner": runner_name,
+            "model": configured_model,
             "status": result.status,
             "exit_code": result.exit_code,
             "produced_files": result.produced_files,

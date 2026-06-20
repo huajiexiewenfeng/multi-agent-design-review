@@ -81,7 +81,7 @@ describe("buildWorkbenchViewModel", () => {
         run_id: "run_1",
         stage: "synthesis",
         status: "ready_to_advance",
-        missing_inputs: ["input/human_answers.json"],
+        missing_inputs: ["input/human_answers.md"],
         agents: []
       },
       events: [],
@@ -102,6 +102,7 @@ describe("buildWorkbenchViewModel", () => {
     });
 
     expect(viewModel.humanActions[0].title).toContain("Human input required");
+    expect(viewModel.humanActions[0].inputLabel).toBe("Human answers");
     expect(viewModel.finalOutputs.map((output) => output.path)).toEqual([
       "output/design_doc.md",
       "output/execution_doc.md",

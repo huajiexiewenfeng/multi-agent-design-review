@@ -25,16 +25,20 @@ export async function getRunners(): Promise<RunnerHealth[]> {
   return response.json();
 }
 
-export async function runRunnerSmokeTest(runnerId: string): Promise<RunnerSmokeResult> {
-  const response = await fetch(`/api/runners/${runnerId}/smoke-test`, { method: "POST" });
+function smokeModelQuery(model?: string | null): string {
+  return model ? `?model=${encodeURIComponent(model)}` : "";
+}
+
+export async function runRunnerSmokeTest(runnerId: string, model?: string | null): Promise<RunnerSmokeResult> {
+  const response = await fetch(`/api/runners/${runnerId}/smoke-test${smokeModelQuery(model)}`, { method: "POST" });
   if (!response.ok) {
     throw new Error(`Failed to run runner smoke test: ${response.status}`);
   }
   return response.json();
 }
 
-export async function startRunnerSmokeJob(runnerId: string): Promise<RunnerSmokeJob> {
-  const response = await fetch(`/api/runners/${runnerId}/smoke-test/jobs`, { method: "POST" });
+export async function startRunnerSmokeJob(runnerId: string, model?: string | null): Promise<RunnerSmokeJob> {
+  const response = await fetch(`/api/runners/${runnerId}/smoke-test/jobs${smokeModelQuery(model)}`, { method: "POST" });
   if (!response.ok) {
     throw new Error(`Failed to start runner smoke job: ${response.status}`);
   }
@@ -128,12 +132,12 @@ export async function updateAgentConfig(
   runId: string,
   agentId: string,
   runner: string,
-  llmName: string,
+  model: string,
 ): Promise<RunProjection> {
   const response = await fetch(`/api/runs/${runId}/agents/${agentId}/config`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ runner, llm_name: llmName })
+    body: JSON.stringify({ runner, model })
   });
   if (!response.ok) {
     throw new Error(`Failed to update agent config: ${response.status}`);
@@ -213,11 +217,11 @@ export async function submitAgentOutput(
   return response.json();
 }
 
-export async function saveClarificationAnswers(runId: string, answers: Record<string, string>): Promise<RunProjection> {
+export async function saveClarificationAnswers(runId: string, content: string): Promise<RunProjection> {
   const response = await fetch(`/api/runs/${runId}/clarification/answers`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answers })
+    body: JSON.stringify({ content })
   });
   if (!response.ok) {
     throw new Error(`Failed to save clarification answers: ${response.status}`);
@@ -233,6 +237,30 @@ export async function saveClarifiedRequirement(runId: string, content: string): 
   });
   if (!response.ok) {
     throw new Error(`Failed to save clarified requirement: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function approveFinalOutput(runId: string, content: string): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/final-approval`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to approve final output: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function requestDiscussionChanges(runId: string, content: string): Promise<RunProjection> {
+  const response = await fetch(`/api/runs/${runId}/discussion/request-changes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to request discussion changes: ${response.status}`);
   }
   return response.json();
 }

@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversationStream } from "../components/ConversationStream";
 import type { ConversationMessage } from "../viewModels/workbenchViewModel";
 
@@ -53,5 +53,27 @@ describe("ConversationStream", () => {
 
     expect(screen.getByText("No conversation yet.")).toBeTruthy();
     expect(screen.getByPlaceholderText("Ask a question or provide additional context...")).toBeTruthy();
+  });
+
+  it("opens and previews related files from conversation messages", () => {
+    const onOpenRelatedFile = vi.fn();
+
+    render(
+      <ConversationStream
+        messages={messages}
+        filePreviews={{
+          "agents/architect/draft_response.v1.md": "## Proposed Design\nA v2 workbench"
+        }}
+        onOpenRelatedFile={onOpenRelatedFile}
+      />
+    );
+
+    const openButton = screen.getByRole("button", { name: "Open agents/architect/draft_response.v1.md" });
+    openButton.click();
+
+    expect(onOpenRelatedFile).toHaveBeenCalledWith("agents/architect/draft_response.v1.md");
+    const preview = screen.getByLabelText("agents/architect/draft_response.v1.md preview");
+    expect(within(preview).getByText("## Proposed Design")).toBeTruthy();
+    expect(within(preview).getByText("A v2 workbench")).toBeTruthy();
   });
 });

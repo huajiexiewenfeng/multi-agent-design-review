@@ -1,19 +1,27 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentSettingsPanel } from "./AgentSettingsPanel";
-import type { AgentProjection } from "../types/run";
+import type { AgentProjection, RunnerSmokeJob, RunnerSmokeResult } from "../types/run";
 
 type AgentConfigUpdate = {
   runner: string;
-  llm_name: string;
+  model: string;
 };
 
 export function AgentSettingsDialog({
   agents,
-  onSave
+  onSave,
+  smokeResults,
+  smokeJobs,
+  testingAgentId,
+  onSmokeTest
 }: {
   agents: AgentProjection[];
   onSave: (agentId: string, update: AgentConfigUpdate) => void;
+  smokeResults?: Record<string, RunnerSmokeResult>;
+  smokeJobs?: Record<string, RunnerSmokeJob>;
+  testingAgentId?: string | null;
+  onSmokeTest?: (agentId: string, update: AgentConfigUpdate) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -30,13 +38,20 @@ export function AgentSettingsDialog({
                 <header>
                   <div>
                     <h2>Agent settings</h2>
-                    <p>Configure each role's local runner and visible LLM name.</p>
+                    <p>Configure each role's local CLI runner and model.</p>
                   </div>
                   <button type="button" aria-label="Close agent settings" onClick={() => setOpen(false)}>
                     Close
                   </button>
                 </header>
-                <AgentSettingsPanel agents={agents} onSave={onSave} />
+                <AgentSettingsPanel
+                  agents={agents}
+                  onSave={onSave}
+                  smokeResults={smokeResults}
+                  smokeJobs={smokeJobs}
+                  testingAgentId={testingAgentId}
+                  onSmokeTest={onSmokeTest}
+                />
               </section>
             </div>,
             document.body

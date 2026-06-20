@@ -12,6 +12,7 @@ from backend.app.services.runner_smoke_service import run_runner_smoke_test
 class RunnerSmokeJob(BaseModel):
     id: str
     runner_id: str
+    model: str | None = None
     status: str
     message: str = ""
     result: dict[str, object] | None = None
@@ -26,16 +27,17 @@ _JOBS: dict[str, RunnerSmokeJob] = {}
 _LOCK = Lock()
 
 
-def start_runner_smoke_job(runs_root: Path, runner_id: str) -> RunnerSmokeJob:
+def start_runner_smoke_job(runs_root: Path, runner_id: str, model: str | None = None) -> RunnerSmokeJob:
     job = RunnerSmokeJob(
         id=f"smoke_job_{uuid4().hex[:12]}",
         runner_id=runner_id,
+        model=model,
         status="queued",
         message="Runner smoke test queued",
     )
     with _LOCK:
         _JOBS[job.id] = job
-    _EXECUTOR.submit(_run_job, runs_root, runner_id, job.id)
+    _EXECUTOR.submit(_run_job, runs_root, runner_id, model, job.id)
     return job
 
 
@@ -52,7 +54,7 @@ def _update_job(job_id: str, **changes: object) -> None:
         _JOBS[job_id] = job.model_copy(update=changes)
 
 
-def _run_job(runs_root: Path, runner_id: str, job_id: str) -> None:
+def _run_job(runs_root: Path, runner_id: str, model: str | None, job_id: str) -> None:
     _update_job(
         job_id,
         status="running",
@@ -60,13 +62,16 @@ def _run_job(runs_root: Path, runner_id: str, job_id: str) -> None:
         started_at=datetime.now(timezone.utc).isoformat(),
     )
     try:
-        result = run_runner_smoke_test(runner_id, runs_root)
+        result = run_runner_smoke_test(runner_id, runs_root, model=model)
+        result_status = str(result.get("status"))
         _update_job(
             job_id,
-            status="succeeded" if result.get("status") == "succeeded" else "failed",
-            message=f"Runner smoke test {result.get('status')}",
+            status=result_status
+            if result_status in {"succeeded", "failed", "waiting_input", "unconfigured", "interactive_only"}
+            else "failed",
+            message=f"Runner smoke test {result_status}",
             result=result,
-            error=result.get("error_message") if result.get("status") != "succeeded" else None,
+            error=result.get("error_message") if result_status != "succeeded" else None,
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
     except Exception as exc:

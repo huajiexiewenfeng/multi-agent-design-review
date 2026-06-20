@@ -3,7 +3,11 @@ from pathlib import Path
 from backend.app.graph.state import WorkflowState
 from backend.app.models import Stage
 from backend.app.services.runner_service import run_agent_stage
-from backend.app.services.state_service import recompute_state
+from backend.app.services.state_service import latest_artifact_version, recompute_state, required_discussion_version
+
+
+def _needs_version(run_dir: Path, pattern: str, required_version: int) -> bool:
+    return latest_artifact_version(run_dir, pattern) < required_version
 
 
 def load_projection_node(state: WorkflowState) -> WorkflowState:
@@ -40,8 +44,9 @@ def draft_node(state: WorkflowState) -> WorkflowState:
 
 def review_node(state: WorkflowState) -> WorkflowState:
     run_dir = Path(state["runs_root"]) / state["run_id"]
+    required_version = required_discussion_version(run_dir)
     for agent in ["architect", "engineer", "reviewer"]:
-        if not list((run_dir / "agents" / agent).glob("review_response.v*.md")):
+        if _needs_version(run_dir, f"agents/{agent}/review_response.v*.md", required_version):
             run_agent_stage(run_dir, agent, Stage.CROSS_REVIEW)
     projection = recompute_state(run_dir)
     return {**state, "stage": projection.stage.value, "checkpoint": False}
@@ -49,8 +54,9 @@ def review_node(state: WorkflowState) -> WorkflowState:
 
 def revision_node(state: WorkflowState) -> WorkflowState:
     run_dir = Path(state["runs_root"]) / state["run_id"]
+    required_version = required_discussion_version(run_dir)
     for agent in ["architect", "engineer"]:
-        if not list((run_dir / "agents" / agent).glob("revision_response.v*.md")):
+        if _needs_version(run_dir, f"agents/{agent}/revision_response.v*.md", required_version):
             run_agent_stage(run_dir, agent, Stage.REVISION)
     projection = recompute_state(run_dir)
     return {**state, "stage": projection.stage.value, "checkpoint": False}
@@ -58,7 +64,10 @@ def revision_node(state: WorkflowState) -> WorkflowState:
 
 def synthesis_node(state: WorkflowState) -> WorkflowState:
     run_dir = Path(state["runs_root"]) / state["run_id"]
-    if not list((run_dir / "agents" / "synthesizer").glob("design_doc.v*.md")):
+    required_version = required_discussion_version(run_dir)
+    if _needs_version(run_dir, "agents/synthesizer/design_doc.v*.md", required_version) or _needs_version(
+        run_dir, "agents/synthesizer/execution_doc.v*.md", required_version
+    ):
         run_agent_stage(run_dir, "synthesizer", Stage.SYNTHESIS)
     projection = recompute_state(run_dir)
     return {**state, "stage": projection.stage.value, "checkpoint": False}

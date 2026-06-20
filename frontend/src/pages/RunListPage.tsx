@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import {
+  approveFinalOutput,
   createRun,
   finalizeRun,
   getEvents,
@@ -14,6 +15,7 @@ import {
   importRunnerHandoffs,
   listRuns,
   readRunFile,
+  requestDiscussionChanges,
   saveClarificationAnswers,
   saveClarifiedRequirement,
   skipAgent,
@@ -69,8 +71,12 @@ export function RunListPage() {
   const [runnerSmokeResults, setRunnerSmokeResults] = useState<Record<string, RunnerSmokeResult>>({});
   const [runnerSmokeJobs, setRunnerSmokeJobs] = useState<Record<string, RunnerSmokeJob>>({});
   const [testingRunnerId, setTestingRunnerId] = useState<string | null>(null);
+  const [agentSmokeResults, setAgentSmokeResults] = useState<Record<string, RunnerSmokeResult>>({});
+  const [agentSmokeJobs, setAgentSmokeJobs] = useState<Record<string, RunnerSmokeJob>>({});
+  const [testingAgentId, setTestingAgentId] = useState<string | null>(null);
   const [isImportingHandoffs, setIsImportingHandoffs] = useState(false);
   const [finalOutputPreviews, setFinalOutputPreviews] = useState<Record<string, string>>({});
+  const [conversationFilePreviews, setConversationFilePreviews] = useState<Record<string, string>>({});
 
   useEffect(() => {
     getRunners().then(setRunnerHealth);
@@ -92,6 +98,7 @@ export function RunListPage() {
     setSelectedRun(run);
     setSelectedStage(run.stage);
     setFinalOutputPreviews({});
+    setConversationFilePreviews({});
     setEvents(await getEvents(run.run_id));
     setFlowVerification(await getFlowVerification(run.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(run.run_id));
@@ -114,6 +121,8 @@ export function RunListPage() {
     setRuns((current) => [created, ...current]);
     setSelectedRun(created);
     setSelectedStage(created.stage);
+    setFinalOutputPreviews({});
+    setConversationFilePreviews({});
     setEvents(await getEvents(created.run_id));
     setFlowVerification(await getFlowVerification(created.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(created.run_id));
@@ -122,11 +131,11 @@ export function RunListPage() {
     setStatusMessage("Run created");
   }
 
-  async function handleSaveAgent(agentId: string, update: { runner: string; llm_name: string }) {
+  async function handleSaveAgent(agentId: string, update: { runner: string; model: string }) {
     if (!selectedRun) {
       return;
     }
-    const updated = await updateAgentConfig(selectedRun.run_id, agentId, update.runner, update.llm_name);
+    const updated = await updateAgentConfig(selectedRun.run_id, agentId, update.runner, update.model);
     setSelectedRun(updated);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
@@ -142,23 +151,43 @@ export function RunListPage() {
     const job = await startRunnerSmokeJob(runnerId);
     setRunnerSmokeJobs((current) => ({ ...current, [runnerId]: job }));
     setStatusMessage(`${runnerId} smoke test queued`);
-    void pollRunnerSmokeJob(runnerId, job.id);
+    void pollRunnerSmokeJob(runnerId, runnerId, job.id, "runner");
   }
 
-  async function pollRunnerSmokeJob(runnerId: string, jobId: string) {
+  async function handleAgentSmokeTest(agentId: string, update: { runner: string; model: string }) {
+    setTestingAgentId(agentId);
+    const job = await startRunnerSmokeJob(update.runner, update.model);
+    setAgentSmokeJobs((current) => ({ ...current, [agentId]: job }));
+    setStatusMessage(`${agentId} smoke test queued: ${update.runner} / ${update.model}`);
+    void pollRunnerSmokeJob(agentId, update.runner, job.id, "agent");
+  }
+
+  async function pollRunnerSmokeJob(resultKey: string, runnerId: string, jobId: string, owner: "runner" | "agent") {
     for (;;) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
       const job = await getRunnerSmokeJob(runnerId, jobId);
-      setRunnerSmokeJobs((current) => ({ ...current, [runnerId]: job }));
+      if (owner === "agent") {
+        setAgentSmokeJobs((current) => ({ ...current, [resultKey]: job }));
+      } else {
+        setRunnerSmokeJobs((current) => ({ ...current, [resultKey]: job }));
+      }
       if (job.status === "queued" || job.status === "running") {
         setStatusMessage(job.message);
         continue;
       }
       if (job.result) {
-        setRunnerSmokeResults((current) => ({ ...current, [runnerId]: job.result as RunnerSmokeResult }));
+        if (owner === "agent") {
+          setAgentSmokeResults((current) => ({ ...current, [resultKey]: job.result as RunnerSmokeResult }));
+        } else {
+          setRunnerSmokeResults((current) => ({ ...current, [resultKey]: job.result as RunnerSmokeResult }));
+        }
       }
-      setTestingRunnerId(null);
-      setStatusMessage(`${runnerId} smoke test ${job.status}`);
+      if (owner === "agent") {
+        setTestingAgentId(null);
+      } else {
+        setTestingRunnerId(null);
+      }
+      setStatusMessage(`${resultKey} smoke test ${job.status}`);
       return;
     }
   }
@@ -243,19 +272,22 @@ export function RunListPage() {
     setFlowVerification(await getFlowVerification(updated.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
-    setStageArtifacts(await getStageArtifacts(updated.run_id, stage));
+    setSelectedStage(updated.stage);
+    setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
     setStatusMessage(`${agentId} output submitted`);
   }
 
-  async function refreshRun(runId: string, stage: string, message: string) {
+  async function refreshRun(runId: string, message: string, stageOverride?: string) {
     const updated = await getRun(runId);
     setSelectedRun(updated);
+    const nextStage = stageOverride ?? updated.stage;
+    setSelectedStage(nextStage);
     setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
     setEvents(await getEvents(updated.run_id));
     setFlowVerification(await getFlowVerification(updated.run_id));
     setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
     setRunnerLogs(await getRunnerLogs(updated.run_id));
-    setStageArtifacts(await getStageArtifacts(updated.run_id, stage));
+    setStageArtifacts(await getStageArtifacts(updated.run_id, nextStage));
     setStatusMessage(message);
   }
 
@@ -285,20 +317,28 @@ export function RunListPage() {
     }
   }
 
-  async function handleSaveAnswers(answers: Record<string, string>) {
+  async function handleSaveAnswers(content: string) {
     if (!selectedRun) {
       return;
     }
-    await saveClarificationAnswers(selectedRun.run_id, answers);
-    await refreshRun(selectedRun.run_id, selectedStage, "Human answers saved");
+    try {
+      await saveClarificationAnswers(selectedRun.run_id, content);
+      await refreshRun(selectedRun.run_id, "Human answers saved");
+    } catch (error) {
+      setStatusMessage(`Save human answers failed: ${errorMessage(error)}`);
+    }
   }
 
   async function handleSaveRequirement(content: string) {
     if (!selectedRun) {
       return;
     }
-    await saveClarifiedRequirement(selectedRun.run_id, content);
-    await refreshRun(selectedRun.run_id, selectedStage, "Clarified requirement saved");
+    try {
+      await saveClarifiedRequirement(selectedRun.run_id, content);
+      await refreshRun(selectedRun.run_id, "Clarified requirement saved");
+    } catch (error) {
+      setStatusMessage(`Save clarified requirement failed: ${errorMessage(error)}`);
+    }
   }
 
   async function handleSubmitHumanInput(action: HumanActionItem, content: string) {
@@ -306,7 +346,51 @@ export function RunListPage() {
       await handleSaveRequirement(content);
       return;
     }
-    await handleSaveAnswers({ human_response: content });
+    if (action.missingInput.includes("final_approval")) {
+      await handleApproveFinalOutput(content);
+      return;
+    }
+    await handleSaveAnswers(content);
+  }
+
+  async function handleApproveFinalOutput(content: string) {
+    if (!selectedRun) {
+      return;
+    }
+    try {
+      const updated = await approveFinalOutput(selectedRun.run_id, content);
+      setSelectedRun(updated);
+      setSelectedStage(updated.stage);
+      setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
+      setEvents(await getEvents(updated.run_id));
+      setFlowVerification(await getFlowVerification(updated.run_id));
+      setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
+      setRunnerLogs(await getRunnerLogs(updated.run_id));
+      setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
+      setStatusMessage("Final output approved");
+    } catch (error) {
+      setStatusMessage(`Approve final output failed: ${errorMessage(error)}`);
+    }
+  }
+
+  async function handleRequestDiscussionChanges(content: string) {
+    if (!selectedRun) {
+      return;
+    }
+    try {
+      const updated = await requestDiscussionChanges(selectedRun.run_id, content);
+      setSelectedRun(updated);
+      setSelectedStage(updated.stage);
+      setRuns((current) => current.map((run) => (run.run_id === updated.run_id ? updated : run)));
+      setEvents(await getEvents(updated.run_id));
+      setFlowVerification(await getFlowVerification(updated.run_id));
+      setRunnerHandoffs(await getRunnerHandoffs(updated.run_id));
+      setRunnerLogs(await getRunnerLogs(updated.run_id));
+      setStageArtifacts(await getStageArtifacts(updated.run_id, updated.stage));
+      setStatusMessage("Discussion reopened");
+    } catch (error) {
+      setStatusMessage(`Request changes failed: ${errorMessage(error)}`);
+    }
   }
 
   async function handleOpenFinalOutput(output: FinalOutputItem) {
@@ -316,6 +400,23 @@ export function RunListPage() {
     const file = await readRunFile(selectedRun.run_id, output.path);
     setFinalOutputPreviews((current) => ({ ...current, [file.path]: file.content }));
     setStatusMessage(`Opened ${file.path}`);
+  }
+
+  async function handleOpenConversationFile(path: string) {
+    if (!selectedRun) {
+      return;
+    }
+    try {
+      const file = await readRunFile(selectedRun.run_id, path);
+      setConversationFilePreviews((current) => ({
+        ...current,
+        [path]: file.content,
+        [file.path]: file.content
+      }));
+      setStatusMessage(`Opened ${file.path}`);
+    } catch {
+      setStatusMessage(`Open failed: ${path}`);
+    }
   }
 
   async function handleCopyFinalOutput(output: FinalOutputItem) {
@@ -350,7 +451,7 @@ export function RunListPage() {
       return;
     }
     await skipAgent(selectedRun.run_id, agentId, stage, reason);
-    await refreshRun(selectedRun.run_id, stage, `${agentId} skipped`);
+    await refreshRun(selectedRun.run_id, `${agentId} skipped`);
   }
 
   const viewModel = buildWorkbenchViewModel({
@@ -374,7 +475,14 @@ export function RunListPage() {
           <p>Local-first multi-agent review room.</p>
         </div>
         <span className="local-first-badge">Local-first</span>
-        <AgentSettingsDialog agents={selectedRun?.agents ?? []} onSave={handleSaveAgent} />
+        <AgentSettingsDialog
+          agents={selectedRun?.agents ?? []}
+          onSave={handleSaveAgent}
+          smokeResults={agentSmokeResults}
+          smokeJobs={agentSmokeJobs}
+          testingAgentId={testingAgentId}
+          onSmokeTest={handleAgentSmokeTest}
+        />
         <RunControls
           disabled={!selectedRun}
           isRunning={isRunning}
@@ -410,8 +518,9 @@ export function RunListPage() {
                 data-current={selectedRun?.run_id === run.run_id ? "true" : "false"}
                 onClick={() => selectRun(run)}
               >
-                <span>{run.run_id}</span>
+                <span className="run-card-title">{run.title || run.run_id}</span>
                 <strong>{run.stage}</strong>
+                <small>{run.run_id}</small>
               </button>
             ))}
           </div>
@@ -429,7 +538,11 @@ export function RunListPage() {
             statusMessage={statusMessage}
             jobStatus={viewModel.jobStatus}
           />
-          <ConversationStream messages={viewModel.conversation} />
+          <ConversationStream
+            messages={viewModel.conversation}
+            filePreviews={conversationFilePreviews}
+            onOpenRelatedFile={handleOpenConversationFile}
+          />
 
           <details className="advanced-workflow-tools">
             <summary>Advanced workflow tools</summary>
@@ -461,6 +574,7 @@ export function RunListPage() {
             onOpenFinalOutput={handleOpenFinalOutput}
             onCopyFinalOutput={handleCopyFinalOutput}
             onDownloadFinalOutput={handleDownloadFinalOutput}
+            onRequestChanges={handleRequestDiscussionChanges}
           />
           <details className="debug-tools">
             <summary>Debug tools</summary>
@@ -483,4 +597,8 @@ export function RunListPage() {
       </div>
     </main>
   );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

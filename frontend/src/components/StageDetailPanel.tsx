@@ -17,7 +17,7 @@ export function StageDetailPanel({
   missingInputs: string[];
   agents?: AgentProjection[];
   onSubmitOutput?: (agentId: string, stage: string, content: string) => void;
-  onSaveAnswers?: (answers: Record<string, string>) => void;
+  onSaveAnswers?: (content: string) => void;
   onSaveRequirement?: (content: string) => void;
   onSkipAgent?: (agentId: string, stage: string, reason: string) => void;
 }) {

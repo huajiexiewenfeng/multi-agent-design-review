@@ -75,12 +75,12 @@ describe("StageDetailPanel", () => {
       />
     );
 
-    fireEvent.change(screen.getByLabelText("Human answers JSON"), { target: { value: '{"q_001":"Local user"}' } });
+    fireEvent.change(screen.getByLabelText("Human answers"), { target: { value: "Local user MVP." } });
     fireEvent.click(screen.getByText("Save Answers"));
     fireEvent.change(screen.getByLabelText("Clarified requirement"), { target: { value: "# Clarified\nLocal user MVP." } });
     fireEvent.click(screen.getByText("Save Clarified Requirement"));
 
-    expect(onSaveAnswers).toHaveBeenCalledWith({ q_001: "Local user" });
+    expect(onSaveAnswers).toHaveBeenCalledWith("Local user MVP.");
     expect(onSaveRequirement).toHaveBeenCalledWith("# Clarified\nLocal user MVP.");
   });
 

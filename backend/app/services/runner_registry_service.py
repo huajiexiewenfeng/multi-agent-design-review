@@ -13,14 +13,16 @@ RUNNER_REGISTRY = {
         "env": "MADR_CODEX_COMMAND",
         "candidates": [NPM_BIN / "codex.cmd"],
         "version_args": ["--version"],
-        "template": '"{executable}" exec --cd "{workspace}" --sandbox read-only -o "{output_file}" - < "{prompt_file}"',
+        "template": '"{executable}" exec --cd "{workspace}" {model_arg} --sandbox read-only -o "{output_file}" - < "{prompt_file}"',
+        "model_arg_template": '--model "{model}"',
     },
     "claude-code": {
         "label": "Claude Code",
         "env": "MADR_CLAUDE_CODE_COMMAND",
         "candidates": [NPM_BIN / "claude.cmd"],
         "version_args": ["--version"],
-        "template": 'type "{prompt_file}" | "{executable}" -p --output-format text --tools "" --safe-mode > "{output_file}"',
+        "template": 'type "{prompt_file}" | "{executable}" -p {model_arg} --output-format text --tools "" --safe-mode > "{output_file}"',
+        "model_arg_template": '--model "{model}"',
     },
     "antigravity": {
         "label": "Antigravity CLI",
@@ -28,17 +30,19 @@ RUNNER_REGISTRY = {
         "candidates": [Path("D:/soft/Antigravity/bin/antigravity.cmd")],
         "version_args": ["--version"],
         "template": '"{executable}" chat --mode agent - < "{instruction_file}"',
+        "model_arg_template": "",
     },
 }
 
 
-def resolve_runner_command(runner: str) -> str | None:
+def resolve_runner_command(runner: str, model: str | None = None) -> str | None:
     definition = RUNNER_REGISTRY.get(runner)
     if not definition:
         return None
+    model_arg = _model_arg(definition, model)
     env_name = str(definition["env"])
     if os.environ.get(env_name):
-        return os.environ[env_name]
+        return _with_model_placeholders(os.environ[env_name], model, model_arg)
     executable = _first_existing(definition["candidates"])
     if not executable:
         return None
@@ -46,6 +50,7 @@ def resolve_runner_command(runner: str) -> str | None:
         str(definition["template"])
         .replace("{executable}", str(executable))
         .replace("{workspace}", str(WORKSPACE))
+        .replace("{model_arg}", model_arg)
     )
 
 
@@ -70,6 +75,19 @@ def get_runner_health() -> list[dict[str, object]]:
             }
         )
     return health
+
+
+def _model_arg(definition: dict[str, object], model: str | None) -> str:
+    if not model:
+        return ""
+    template = str(definition.get("model_arg_template", ""))
+    if not template:
+        return ""
+    return template.replace("{model}", model)
+
+
+def _with_model_placeholders(command: str, model: str | None, model_arg: str) -> str:
+    return command.replace("{model_arg}", model_arg).replace("{model}", model or "")
 
 
 def _first_existing(candidates: object) -> Path | None:

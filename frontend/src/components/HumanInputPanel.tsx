@@ -4,24 +4,29 @@ export function HumanInputPanel({
   onSaveAnswers,
   onSaveRequirement
 }: {
-  onSaveAnswers: (answers: Record<string, string>) => void;
+  onSaveAnswers: (content: string) => void;
   onSaveRequirement: (content: string) => void;
 }) {
-  const [answersJson, setAnswersJson] = useState("{}");
+  const [answersText, setAnswersText] = useState("");
   const [clarifiedRequirement, setClarifiedRequirement] = useState("");
   return (
     <section className="human-input-panel" aria-label="Human input">
       <h3>Human Checkpoint</h3>
       <label>
-        Human answers JSON
+        Human answers
         <textarea
-          aria-label="Human answers JSON"
-          value={answersJson}
-          onChange={(event) => setAnswersJson(event.target.value)}
+          aria-label="Human answers"
+          value={answersText}
+          onChange={(event) => setAnswersText(event.target.value)}
           rows={5}
+          placeholder="Write your answers, decisions, or extra context in natural language."
         />
       </label>
-      <button type="button" onClick={() => onSaveAnswers(JSON.parse(answersJson))}>
+      <button
+        type="button"
+        disabled={!answersText.trim()}
+        onClick={() => onSaveAnswers(answersText.trim())}
+      >
         Save Answers
       </button>
       <label>

@@ -25,18 +25,19 @@ def test_update_agent_config_api(tmp_path, monkeypatch) -> None:
 
     response = client.put(
         f"/api/runs/{created['run_id']}/agents/architect/config",
-        json={"runner": "claude-code", "llm_name": "claude-sonnet-4.5"},
+        json={"runner": "claude-code", "model": "opus"},
     )
 
     assert response.status_code == 200
     architect = next(agent for agent in response.json()["agents"] if agent["id"] == "architect")
     assert architect["runner"] == "claude-code"
-    assert architect["llm_name"] == "claude-sonnet-4.5"
+    assert architect["model"] == "opus"
+    assert architect["llm_name"] == "opus"
 
 
 def test_graph_step_api_uses_configured_runner_and_generates_prompt(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(api_module, "RUNS_ROOT", tmp_path)
-    monkeypatch.setattr(runner_service, "resolve_runner_command", lambda runner: None)
+    monkeypatch.setattr(runner_service, "resolve_runner_command", lambda runner, model=None: None)
     client = TestClient(app)
     created = client.post("/api/runs", json={"title": "Demo", "requirement": "# Requirement\nBuild"}).json()
     client.put(

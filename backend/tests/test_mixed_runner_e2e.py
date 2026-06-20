@@ -9,7 +9,11 @@ from backend.app.services.clarification_service import merge_clarification_quest
 from backend.app.services.finalize_service import finalize_run
 from backend.app.services.flow_control_service import run_until_pause
 from backend.app.services.flow_verification_service import get_mixed_runner_verification
-from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
+from backend.app.services.human_input_service import (
+    approve_final_output,
+    save_clarification_answers,
+    save_clarified_requirement,
+)
 from backend.app.services.run_service import create_run
 from backend.app.services.runner_handoff_service import import_waiting_runner_outputs
 
@@ -53,7 +57,7 @@ def test_mixed_runner_flow_reaches_final_outputs_and_verifies_evidence(tmp_path,
     monkeypatch.setattr(
         runner_service,
         "get_runner",
-        lambda name: WaitingAntigravityRunner() if name == "antigravity" else MockRunner(),
+        lambda name, model=None: WaitingAntigravityRunner() if name == "antigravity" else MockRunner(),
     )
 
     first = run_until_pause(tmp_path, projection.run_id)
@@ -70,7 +74,10 @@ def test_mixed_runner_flow_reaches_final_outputs_and_verifies_evidence(tmp_path,
     import_waiting_runner_outputs(run_dir)
 
     third = run_until_pause(tmp_path, projection.run_id)
-    assert third["stop_reason"] == "ready_to_finalize"
+    assert third["stop_reason"] == "human_final_approval"
+    approve_final_output(run_dir, "Approved")
+    fourth = run_until_pause(tmp_path, projection.run_id)
+    assert fourth["stop_reason"] == "ready_to_finalize"
     finalize_run(run_dir)
 
     verification = get_mixed_runner_verification(run_dir)

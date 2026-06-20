@@ -14,7 +14,7 @@ PROMPT_BY_STAGE = {
 OUTPUT_PATTERNS_BY_STAGE = {
     Stage.REQUIREMENT: ["input/requirement.md"],
     Stage.CLARIFICATION: ["agents/*/clarification_questions.v*.md"],
-    Stage.CLARIFIED_REQUIREMENT: ["input/clarified_requirement.md", "input/human_answers.json"],
+    Stage.CLARIFIED_REQUIREMENT: ["input/clarified_requirement.md", "input/human_answers.md"],
     Stage.DRAFT_DESIGN: ["agents/*/draft_response.v*.md"],
     Stage.CROSS_REVIEW: ["agents/*/review_response.v*.md"],
     Stage.REVISION: ["agents/*/revision_response.v*.md"],

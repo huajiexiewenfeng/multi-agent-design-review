@@ -51,6 +51,7 @@ def test_real_mvp_flow_through_all_authoritative_outputs(tmp_path: Path) -> None
     synth.mkdir(parents=True, exist_ok=True)
     (synth / "design_doc.v1.md").write_text("# Design Document\n\n## Architecture\nFile-first", encoding="utf-8")
     (synth / "execution_doc.v1.md").write_text("# Execution Document\n\n## Implementation Plan\nBuild", encoding="utf-8")
+    (run_dir / "input" / "final_approval.md").write_text("Approved", encoding="utf-8")
 
     finalize_run(run_dir)
 

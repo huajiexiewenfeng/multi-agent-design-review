@@ -9,6 +9,18 @@ def test_resolve_runner_command_prefers_environment(monkeypatch) -> None:
     assert runner_registry_service.resolve_runner_command("codex") == "codex-test {prompt_file}"
 
 
+def test_resolve_runner_command_includes_model_argument(monkeypatch) -> None:
+    monkeypatch.delenv("MADR_CODEX_COMMAND", raising=False)
+    monkeypatch.delenv("MADR_CLAUDE_CODE_COMMAND", raising=False)
+    monkeypatch.setattr(runner_registry_service, "_first_existing", lambda candidates: Path("C:/fake/runner.cmd"))
+
+    codex = runner_registry_service.resolve_runner_command("codex", "gpt-5.5")
+    claude = runner_registry_service.resolve_runner_command("claude-code", "opus")
+
+    assert '--model "gpt-5.5"' in codex
+    assert '--model "opus"' in claude
+
+
 def test_runner_health_reports_configured_env(monkeypatch) -> None:
     monkeypatch.setenv("MADR_CLAUDE_CODE_COMMAND", "claude-test {prompt_file}")
     monkeypatch.setattr(runner_registry_service, "_first_existing", lambda candidates: Path("C:/fake/claude.cmd"))

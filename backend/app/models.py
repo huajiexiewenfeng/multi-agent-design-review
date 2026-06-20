@@ -45,12 +45,14 @@ class AgentProjection(BaseModel):
     id: str
     label: str
     runner: str
+    model: str
     llm_name: str
     stages: list[Stage] = Field(default_factory=list)
 
 
 class RunProjection(BaseModel):
     run_id: str
+    title: str = ""
     stage: Stage
     status: StageStatus
     missing_inputs: list[str] = Field(default_factory=list)

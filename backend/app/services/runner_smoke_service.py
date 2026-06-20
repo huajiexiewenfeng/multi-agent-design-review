@@ -19,13 +19,27 @@ def _read_log_content(log_dir: Path) -> str:
 def run_runner_smoke_test(
     runner_id: str,
     runs_root: Path,
+    model: str | None = None,
     timeout_seconds: int | None = None,
 ) -> dict[str, object]:
-    command = resolve_runner_command(runner_id)
+    if runner_id == "antigravity":
+        return {
+            "runner_id": runner_id,
+            "model": model,
+            "status": "interactive_only",
+            "exit_code": None,
+            "output_content": "",
+            "log_content": "",
+            "error_message": "Antigravity is interactive-only in this MVP; use handoff instead of smoke test.",
+            "smoke_dir": "",
+        }
+
+    command = resolve_runner_command(runner_id, model)
     if not command:
         return {
             "runner_id": runner_id,
-            "status": "failed",
+            "model": model,
+            "status": "unconfigured",
             "exit_code": None,
             "output_content": "",
             "log_content": "",
@@ -44,7 +58,7 @@ def run_runner_smoke_test(
         encoding="utf-8",
     )
 
-    runner = get_runner(runner_id)
+    runner = get_runner(runner_id, model)
     result = runner.run(
         run_id=smoke_dir.name,
         agent_id="smoke",
@@ -61,11 +75,14 @@ def run_runner_smoke_test(
     )
     status = result.status
     error_message = result.error_message
-    if "MADR_RUNNER_SMOKE_OK" not in output_content:
+    if result.status == "waiting_input":
+        status = "waiting_input"
+    elif "MADR_RUNNER_SMOKE_OK" not in output_content:
         status = "failed"
         error_message = "Smoke output did not contain MADR_RUNNER_SMOKE_OK"
     return {
         "runner_id": runner_id,
+        "model": model,
         "status": status,
         "exit_code": result.exit_code,
         "output_content": output_content,

@@ -11,6 +11,7 @@ const agents: AgentProjection[] = [
     label: "Architect",
     runner: "codex",
     llm_name: "GPT-5.5",
+    model: "gpt-5.5",
     stages: ["clarification", "draft_design"]
   }
 ];
@@ -24,12 +25,12 @@ describe("AgentSettingsDialog", () => {
 
     expect(screen.getByRole("dialog", { name: "Agent settings" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Architect runner"), { target: { value: "claude-code" } });
-    fireEvent.change(screen.getByLabelText("Architect LLM name"), { target: { value: "claude opus 4.8" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Architect" }));
+    fireEvent.change(screen.getByLabelText("Architect model"), { target: { value: "opus" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSave).toHaveBeenCalledWith("architect", {
       runner: "claude-code",
-      llm_name: "claude opus 4.8"
+      model: "opus"
     });
   });
 });

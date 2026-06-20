@@ -26,7 +26,8 @@ const humanActions: HumanActionItem[] = [
     id: "human_action_1",
     title: "Human input required",
     description: "Answer reviewer questions.",
-    missingInput: "input/human_answers.json"
+    missingInput: "input/human_answers.md",
+    inputLabel: "Human answers"
   }
 ];
 
@@ -60,6 +61,8 @@ describe("RightExecutionPanel", () => {
     expect(screen.getByText("Codex / GPT-5.5")).toBeTruthy();
     expect(screen.getByText("Human Action Required")).toBeTruthy();
     expect(screen.getByText("Answer reviewer questions.")).toBeTruthy();
+    expect(screen.getByText("Human answers")).toBeTruthy();
+    expect(screen.queryByText("input/human_answers.md")).toBeNull();
     expect(screen.getByText("Artifacts")).toBeTruthy();
     expect(screen.getByText("agents/architect/draft_response.v1.md")).toBeTruthy();
     expect(screen.getByText("Final Outputs")).toBeTruthy();
@@ -135,6 +138,7 @@ describe("RightExecutionPanel", () => {
         onOpenFinalOutput={onOpenFinalOutput}
         onCopyFinalOutput={onCopyFinalOutput}
         onDownloadFinalOutput={onDownloadFinalOutput}
+        onRequestChanges={vi.fn()}
       />
     );
 
@@ -147,5 +151,29 @@ describe("RightExecutionPanel", () => {
     expect(onDownloadFinalOutput).toHaveBeenCalledWith(finalOutputs[0]);
     expect(screen.getByText("# Design Doc")).toBeTruthy();
     expect(screen.getByText("Ready.")).toBeTruthy();
+  });
+
+  it("submits final-output change requests for another discussion round", () => {
+    const onRequestChanges = vi.fn();
+    render(
+      <RightExecutionPanel
+        agentQueue={agentQueue}
+        humanActions={[]}
+        artifacts={artifacts}
+        finalOutputs={finalOutputs}
+        canFinalize={false}
+        isImportingHandoffs={false}
+        onFinalize={vi.fn()}
+        onImportHandoffs={vi.fn()}
+        onRequestChanges={onRequestChanges}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Request changes"), {
+      target: { value: "Please run another review round on risks." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
+
+    expect(onRequestChanges).toHaveBeenCalledWith("Please run another review round on risks.");
   });
 });

@@ -12,7 +12,12 @@ from backend.app.services.finalize_service import finalize_run
 from backend.app.services.flow_verification_service import get_mixed_runner_verification
 from backend.app.services.graph_service import run_graph_step
 from backend.app.services.human_control_service import advance_stage, revert_stage, skip_agent
-from backend.app.services.human_input_service import save_clarification_answers, save_clarified_requirement
+from backend.app.services.human_input_service import (
+    approve_final_output,
+    request_discussion_changes,
+    save_clarification_answers,
+    save_clarified_requirement,
+)
 from backend.app.services.job_service import get_job, start_graph_step_job, start_run_until_pause_job
 from backend.app.services.run_service import create_run, get_run_dir, list_runs
 from backend.app.services.runner_handoff_service import get_runner_handoffs, import_waiting_runner_outputs
@@ -47,16 +52,22 @@ class RevertStageRequest(BaseModel):
 
 
 class ClarificationAnswersRequest(BaseModel):
-    answers: dict[str, str]
+    answers: dict[str, str] | None = None
+    content: str | None = None
 
 
 class ClarifiedRequirementRequest(BaseModel):
     content: str
 
 
+class HumanContentRequest(BaseModel):
+    content: str
+
+
 class AgentConfigRequest(BaseModel):
     runner: str
-    llm_name: str
+    model: str | None = None
+    llm_name: str | None = None
 
 
 class GraphStepRequest(BaseModel):
@@ -78,13 +89,13 @@ def get_runners_endpoint():
 
 
 @router.post("/runners/{runner_id}/smoke-test")
-def run_runner_smoke_test_endpoint(runner_id: str):
-    return run_runner_smoke_test(runner_id, RUNS_ROOT)
+def run_runner_smoke_test_endpoint(runner_id: str, model: str | None = None):
+    return run_runner_smoke_test(runner_id, RUNS_ROOT, model=model)
 
 
 @router.post("/runners/{runner_id}/smoke-test/jobs")
-def start_runner_smoke_job_endpoint(runner_id: str):
-    return start_runner_smoke_job(RUNS_ROOT, runner_id).model_dump(mode="json")
+def start_runner_smoke_job_endpoint(runner_id: str, model: str | None = None):
+    return start_runner_smoke_job(RUNS_ROOT, runner_id, model=model).model_dump(mode="json")
 
 
 @router.get("/runners/{runner_id}/smoke-test/jobs/{job_id}")
@@ -214,9 +225,17 @@ def revert_run_endpoint(run_id: str, request: RevertStageRequest):
 @router.post("/runs/{run_id}/clarification/answers")
 def save_clarification_answers_endpoint(run_id: str, request: ClarificationAnswersRequest):
     try:
-        return save_clarification_answers(get_run_dir(RUNS_ROOT, run_id), request.answers).model_dump(mode="json")
+        if request.answers is None and not request.content:
+            raise ValueError("Human answers are required")
+        return save_clarification_answers(
+            get_run_dir(RUNS_ROOT, run_id),
+            answers=request.answers,
+            content=request.content,
+        ).model_dump(mode="json")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/runs/{run_id}/clarified-requirement")
@@ -230,9 +249,28 @@ def save_clarified_requirement_endpoint(run_id: str, request: ClarifiedRequireme
 @router.put("/runs/{run_id}/agents/{agent_id}/config")
 def update_agent_config_endpoint(run_id: str, agent_id: str, request: AgentConfigRequest):
     try:
-        return update_agent_config(get_run_dir(RUNS_ROOT, run_id), agent_id, request.runner, request.llm_name).model_dump(
+        model = request.model if request.model is not None else request.llm_name
+        if model is None:
+            raise ValueError("Model is required")
+        return update_agent_config(get_run_dir(RUNS_ROOT, run_id), agent_id, request.runner, model).model_dump(
             mode="json"
         )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.post("/runs/{run_id}/final-approval")
+def approve_final_output_endpoint(run_id: str, request: HumanContentRequest):
+    try:
+        return approve_final_output(get_run_dir(RUNS_ROOT, run_id), request.content).model_dump(mode="json")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+
+@router.post("/runs/{run_id}/discussion/request-changes")
+def request_discussion_changes_endpoint(run_id: str, request: HumanContentRequest):
+    try:
+        return request_discussion_changes(get_run_dir(RUNS_ROOT, run_id), request.content).model_dump(mode="json")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
     except ValueError as exc:
@@ -286,6 +324,8 @@ def finalize_run_endpoint(run_id: str):
         return recompute_state(run_dir).model_dump(mode="json")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/runs/{run_id}/agents/{agent_id}/submit")

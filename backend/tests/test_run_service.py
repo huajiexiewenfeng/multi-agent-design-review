@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from backend.app.services.run_service import create_run
+from backend.app.services.run_service import create_run, list_runs
 
 
 def test_create_run_writes_required_files(tmp_path: Path) -> None:
@@ -21,3 +21,14 @@ def test_create_run_projects_agent_llm_names(tmp_path: Path) -> None:
     assert projection.agents[0].id == "architect"
     assert projection.agents[0].runner == "mock"
     assert projection.agents[0].llm_name == "Mock runner"
+
+
+def test_list_runs_returns_newest_first_with_titles(tmp_path: Path) -> None:
+    first = create_run(tmp_path, title="First feature", requirement="# Requirement\nFirst")
+    second = create_run(tmp_path, title="Second feature", requirement="# Requirement\nSecond")
+
+    runs = list_runs(tmp_path)
+
+    assert [run["run_id"] for run in runs] == [second.run_id, first.run_id]
+    assert runs[0]["title"] == "Second feature"
+    assert runs[1]["title"] == "First feature"

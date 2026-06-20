@@ -46,6 +46,7 @@ export type HumanActionItem = {
   title: string;
   description: string;
   missingInput: string;
+  inputLabel: string;
 };
 
 export type WorkbenchArtifact = {
@@ -194,7 +195,7 @@ function buildConversation(
       timestamp: event.timestamp ?? null,
       relatedFile: event.related_file ?? null,
       runnerLabel: agent ? RUNNER_LABELS[agent.runner] ?? titleCase(agent.runner) : null,
-      llmName: agent?.llm_name ?? null
+      llmName: agent?.model ?? agent?.llm_name ?? null
     };
   });
 }
@@ -207,7 +208,7 @@ function buildAgentQueue(run: RunProjection | null, agents: AgentProjection[]): 
       id: agent.id,
       label: agent.label,
       runnerLabel: RUNNER_LABELS[agent.runner] ?? titleCase(agent.runner),
-      llmName: agent.llm_name,
+      llmName: agent.model ?? agent.llm_name,
       status: active ? (run?.missing_inputs.length ? "waiting_input" : "in_progress") : "pending",
       task: active ? `Working on ${stageLabel(currentStage)}` : `Pending ${stageLabel(currentStage)}`
     };
@@ -219,7 +220,8 @@ function buildHumanActions(run: RunProjection | null): HumanActionItem[] {
     id: `human_action_${index + 1}`,
     title: "Human input required",
     description: missingInputDescription(missingInput),
-    missingInput
+    missingInput,
+    inputLabel: missingInputLabel(missingInput)
   }));
 }
 
@@ -242,10 +244,26 @@ function missingInputDescription(path: string): string {
   if (path.includes("human_answers")) {
     return "Answer the agent questions before the workflow can continue.";
   }
+  if (path.includes("final_approval")) {
+    return "Approve the synthesized draft before final documents are generated.";
+  }
   if (path.includes("clarified_requirement")) {
     return "Confirm the clarified requirement before draft work starts.";
   }
   return `Resolve missing input: ${path}`;
+}
+
+function missingInputLabel(path: string): string {
+  if (path.includes("human_answers")) {
+    return "Human answers";
+  }
+  if (path.includes("final_approval")) {
+    return "Final approval";
+  }
+  if (path.includes("clarified_requirement")) {
+    return "Clarified requirement";
+  }
+  return path;
 }
 
 function titleCase(value: string): string {

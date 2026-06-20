@@ -119,14 +119,15 @@ def test_runner_smoke_test_endpoint_returns_result(tmp_path, monkeypatch) -> Non
     monkeypatch.setattr(
         api_module,
         "run_runner_smoke_test",
-        lambda runner_id, runs_root: {"runner_id": runner_id, "status": "succeeded"},
+        lambda runner_id, runs_root, model=None: {"runner_id": runner_id, "model": model, "status": "succeeded"},
     )
     client = TestClient(app)
 
-    response = client.post("/api/runners/codex/smoke-test")
+    response = client.post("/api/runners/codex/smoke-test?model=gpt-5.5")
 
     assert response.status_code == 200
     assert response.json()["runner_id"] == "codex"
+    assert response.json()["model"] == "gpt-5.5"
     assert response.json()["status"] == "succeeded"
 
 
@@ -136,6 +137,7 @@ def test_runner_smoke_job_endpoints(tmp_path, monkeypatch) -> None:
     class FakeJob:
         id = "smoke_job_1"
         runner_id = "codex"
+        model = "gpt-5.5"
         status = "queued"
         message = "Runner smoke test queued"
 
@@ -143,6 +145,7 @@ def test_runner_smoke_job_endpoints(tmp_path, monkeypatch) -> None:
             return {
                 "id": self.id,
                 "runner_id": self.runner_id,
+                "model": self.model,
                 "status": self.status,
                 "message": self.message,
                 "result": None,
@@ -150,15 +153,16 @@ def test_runner_smoke_job_endpoints(tmp_path, monkeypatch) -> None:
                 "created_at": "2026-06-19T00:00:00+00:00",
             }
 
-    monkeypatch.setattr(api_module, "start_runner_smoke_job", lambda runs_root, runner_id: FakeJob())
+    monkeypatch.setattr(api_module, "start_runner_smoke_job", lambda runs_root, runner_id, model=None: FakeJob())
     monkeypatch.setattr(api_module, "get_runner_smoke_job", lambda job_id: FakeJob())
     client = TestClient(app)
 
-    created = client.post("/api/runners/codex/smoke-test/jobs")
+    created = client.post("/api/runners/codex/smoke-test/jobs?model=gpt-5.5")
     fetched = client.get("/api/runners/codex/smoke-test/jobs/smoke_job_1")
 
     assert created.status_code == 200
     assert created.json()["id"] == "smoke_job_1"
+    assert created.json()["model"] == "gpt-5.5"
     assert fetched.status_code == 200
     assert fetched.json()["runner_id"] == "codex"
 
@@ -216,6 +220,7 @@ def test_finalize_run_endpoint_writes_output_docs_and_event(tmp_path, monkeypatc
     synth_dir.mkdir(parents=True, exist_ok=True)
     (synth_dir / "design_doc.v1.md").write_text("# Design Document\n\n## Architecture\nA", encoding="utf-8")
     (synth_dir / "execution_doc.v1.md").write_text("# Execution Document\n\n## Implementation Plan\nB", encoding="utf-8")
+    (run_dir / "input" / "final_approval.md").write_text("Approved", encoding="utf-8")
 
     response = client.post(f"/api/runs/{run_id}/finalize")
 

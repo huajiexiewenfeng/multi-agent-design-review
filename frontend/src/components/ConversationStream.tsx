@@ -1,6 +1,16 @@
 import type { ConversationMessage } from "../viewModels/workbenchViewModel";
 
-export function ConversationStream({ messages }: { messages: ConversationMessage[] }) {
+type ConversationStreamProps = {
+  messages: ConversationMessage[];
+  filePreviews?: Record<string, string>;
+  onOpenRelatedFile?: (path: string) => void;
+};
+
+function renderLines(id: string, content: string) {
+  return content.split("\n").map((line, index) => <p key={`${id}_${index}`}>{line}</p>);
+}
+
+export function ConversationStream({ messages, filePreviews = {}, onOpenRelatedFile }: ConversationStreamProps) {
   return (
     <section className="conversation-stream" aria-label="Agent conversation">
       <div className="conversation-stream__messages">
@@ -18,11 +28,20 @@ export function ConversationStream({ messages }: { messages: ConversationMessage
                 {message.stage ? <span>{message.stage}</span> : null}
               </header>
               <div className="conversation-message__body">
-                {message.body.split("\n").map((line, index) => (
-                  <p key={`${message.id}_${index}`}>{line}</p>
-                ))}
+                {renderLines(message.id, message.body)}
               </div>
-              {message.relatedFile ? <footer>{message.relatedFile}</footer> : null}
+              {message.relatedFile ? (
+                <footer className="conversation-message__attachment">
+                  <button type="button" onClick={() => onOpenRelatedFile?.(message.relatedFile as string)}>
+                    Open <span>{message.relatedFile}</span>
+                  </button>
+                  {filePreviews[message.relatedFile] ? (
+                    <div className="conversation-message__preview" aria-label={`${message.relatedFile} preview`}>
+                      {renderLines(`${message.id}_preview`, filePreviews[message.relatedFile])}
+                    </div>
+                  ) : null}
+                </footer>
+              ) : null}
             </div>
           </article>
         ))}

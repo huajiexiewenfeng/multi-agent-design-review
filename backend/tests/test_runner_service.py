@@ -71,11 +71,38 @@ def test_run_agent_stage_uses_configurable_timeout(tmp_path: Path, monkeypatch) 
     (run_dir / "input").mkdir(parents=True)
     (run_dir / "input" / "requirement.md").write_text("# Requirement\nBuild", encoding="utf-8")
     monkeypatch.setenv("MADR_RUNNER_TIMEOUT_SECONDS", "240")
-    monkeypatch.setattr(runner_service, "get_runner", lambda name: CapturingRunner())
+    monkeypatch.setattr(runner_service, "get_runner", lambda name, model=None: CapturingRunner())
 
     runner_service.run_agent_stage(run_dir, "architect", runner_service.Stage.CLARIFICATION, "mock")
 
     assert captured["timeout_seconds"] == 240
+
+
+def test_run_agent_stage_uses_agent_model_for_command_runner(tmp_path: Path, monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    class CapturingRunner:
+        def run(self, **kwargs):
+            return MockRunner().run(**kwargs)
+
+    run_dir = tmp_path / "run_001"
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "input" / "requirement.md").write_text("# Requirement\nBuild", encoding="utf-8")
+    (run_dir / "runners.yaml").write_text(
+        "architect:\n  runner: codex\n  model: gpt-5.5\n",
+        encoding="utf-8",
+    )
+
+    def fake_get_runner(name: str, model: str | None = None):
+        captured["runner"] = name
+        captured["model"] = model or ""
+        return CapturingRunner()
+
+    monkeypatch.setattr(runner_service, "get_runner", fake_get_runner)
+
+    runner_service.run_agent_stage(run_dir, "architect", runner_service.Stage.CLARIFICATION)
+
+    assert captured == {"runner": "codex", "model": "gpt-5.5"}
 
 
 def test_run_agent_stage_records_runner_failure_event(tmp_path: Path, monkeypatch) -> None:
@@ -96,7 +123,7 @@ def test_run_agent_stage_records_runner_failure_event(tmp_path: Path, monkeypatc
     (run_dir / "input").mkdir(parents=True)
     (run_dir / "input" / "requirement.md").write_text("# Requirement\nBuild", encoding="utf-8")
     (run_dir / "events.jsonl").write_text("", encoding="utf-8")
-    monkeypatch.setattr(runner_service, "get_runner", lambda name: FailingRunner())
+    monkeypatch.setattr(runner_service, "get_runner", lambda name, model=None: FailingRunner())
 
     runner_service.run_agent_stage(run_dir, "architect", runner_service.Stage.CLARIFICATION, "codex")
 
@@ -128,7 +155,7 @@ def test_run_agent_stage_records_runner_success_event(tmp_path: Path, monkeypatc
     run_dir = tmp_path / "run_001"
     (run_dir / "input").mkdir(parents=True)
     (run_dir / "input" / "requirement.md").write_text("# Requirement\nBuild", encoding="utf-8")
-    monkeypatch.setattr(runner_service, "get_runner", lambda name: SuccessfulRunner())
+    monkeypatch.setattr(runner_service, "get_runner", lambda name, model=None: SuccessfulRunner())
 
     runner_service.run_agent_stage(run_dir, "architect", runner_service.Stage.CLARIFICATION, "codex")
 
@@ -157,7 +184,7 @@ def test_run_agent_stage_records_runner_waiting_event(tmp_path: Path, monkeypatc
     (run_dir / "input").mkdir(parents=True)
     (run_dir / "input" / "requirement.md").write_text("# Requirement\nBuild", encoding="utf-8")
     (run_dir / "events.jsonl").write_text("", encoding="utf-8")
-    monkeypatch.setattr(runner_service, "get_runner", lambda name: WaitingRunner())
+    monkeypatch.setattr(runner_service, "get_runner", lambda name, model=None: WaitingRunner())
 
     runner_service.run_agent_stage(run_dir, "architect", runner_service.Stage.CLARIFICATION, "antigravity")
 
@@ -182,7 +209,7 @@ def test_run_agent_stage_imports_existing_inbox_file_before_launching_runner(tmp
         "## Clarification Questions\n\n1. [required] What is the goal?\n\n## Assumptions\n\n- Local flow.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(runner_service, "get_runner", lambda name: ShouldNotRun())
+    monkeypatch.setattr(runner_service, "get_runner", lambda name, model=None: ShouldNotRun())
 
     runner_service.run_agent_stage(run_dir, "architect", runner_service.Stage.CLARIFICATION, "antigravity")
 
@@ -208,7 +235,7 @@ def test_run_agent_stage_ignores_stale_inbox_file_for_other_stage(tmp_path: Path
         "## Clarification Questions\n\n1. [required] Old?\n\n## Assumptions\n\n- Old.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(runner_service, "get_runner", lambda name: CapturingRunner())
+    monkeypatch.setattr(runner_service, "get_runner", lambda name, model=None: CapturingRunner())
 
     runner_service.run_agent_stage(run_dir, "architect", runner_service.Stage.DRAFT_DESIGN, "mock")
 
@@ -231,12 +258,39 @@ def test_run_agent_stage_imports_existing_synthesis_inbox_file(tmp_path: Path, m
         "# Design Document\n\n## Architecture\nDesign\n\n# Execution Document\n\n## Implementation Plan\nPlan\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(runner_service, "get_runner", lambda name: ShouldNotRun())
+    monkeypatch.setattr(runner_service, "get_runner", lambda name, model=None: ShouldNotRun())
 
     runner_service.run_agent_stage(run_dir, "synthesizer", runner_service.Stage.SYNTHESIS, "antigravity")
 
     assert (run_dir / "agents" / "synthesizer" / "design_doc.v1.md").is_file()
     assert (run_dir / "agents" / "synthesizer" / "execution_doc.v1.md").is_file()
+
+
+def test_run_agent_stage_imports_synthesis_as_next_version(tmp_path: Path, monkeypatch) -> None:
+    class ShouldNotRun:
+        def run(self, **kwargs):
+            raise AssertionError("runner should not launch when synthesis inbox output already exists")
+
+    run_dir = tmp_path / "run_001"
+    (run_dir / "input").mkdir(parents=True)
+    (run_dir / "input" / "requirement.md").write_text("# Requirement\nBuild", encoding="utf-8")
+    (run_dir / "events.jsonl").write_text("", encoding="utf-8")
+    synthesizer_dir = run_dir / "agents" / "synthesizer"
+    synthesizer_dir.mkdir(parents=True)
+    (synthesizer_dir / "design_doc.v1.md").write_text("# Design Document\n\nOld", encoding="utf-8")
+    (synthesizer_dir / "execution_doc.v1.md").write_text("# Execution Document\n\nOld", encoding="utf-8")
+    inbox = run_dir / "inbox" / "synthesizer"
+    inbox.mkdir(parents=True)
+    (inbox / "synthesis_result.md").write_text(
+        "# Design Document\n\n## Architecture\nDesign v2\n\n# Execution Document\n\n## Implementation Plan\nPlan v2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runner_service, "get_runner", lambda name, model=None: ShouldNotRun())
+
+    runner_service.run_agent_stage(run_dir, "synthesizer", runner_service.Stage.SYNTHESIS, "antigravity")
+
+    assert "Design v2" in (synthesizer_dir / "design_doc.v2.md").read_text(encoding="utf-8")
+    assert "Plan v2" in (synthesizer_dir / "execution_doc.v2.md").read_text(encoding="utf-8")
 
 
 def test_command_runner_returns_when_output_file_is_stable(tmp_path: Path) -> None:

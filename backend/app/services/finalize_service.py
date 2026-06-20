@@ -27,6 +27,10 @@ def _render_transcript(events_jsonl: Path) -> str:
 
 def finalize_run(run_dir: Path) -> None:
     with run_lock(run_dir):
+        approval_file = run_dir / "input" / "final_approval.md"
+        if not approval_file.is_file() or approval_file.read_text(encoding="utf-8").strip() == "":
+            raise ValueError("Final output requires human approval")
+
         synthesizer_dir = run_dir / "agents" / "synthesizer"
         output_dir = run_dir / "output"
         output_dir.mkdir(parents=True, exist_ok=True)

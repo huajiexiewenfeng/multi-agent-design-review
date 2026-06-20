@@ -32,6 +32,7 @@ def render_prompt(stage: Stage, agent_id: str, run_dir: Path) -> str:
     human_answers = _read(run_dir / "input" / "human_answers.md")
     clarified_requirement = _read(run_dir / "input" / "clarified_requirement.md")
     human_notes = "\n\n".join([_read(run_dir / "human" / "comments.md"), _read(run_dir / "human" / "decisions.md")])
+    discussion_requests = _all_text(run_dir, "input/discussion_requests/*.md")
 
     if stage == Stage.CLARIFICATION:
         return _template("clarification.md").format(agent_id=agent_id, requirement=requirement)
@@ -46,6 +47,7 @@ def render_prompt(stage: Stage, agent_id: str, run_dir: Path) -> str:
         return _template("review.md").format(
             agent_id=agent_id,
             clarified_requirement=clarified_requirement,
+            discussion_requests=discussion_requests,
             drafts=_all_text(run_dir, "agents/*/draft_response.v*.md"),
         )
     if stage == Stage.REVISION:
@@ -53,7 +55,7 @@ def render_prompt(stage: Stage, agent_id: str, run_dir: Path) -> str:
             agent_id=agent_id,
             own_draft=_latest_text(run_dir, f"agents/{agent_id}/draft_response.v*.md"),
             reviews=_all_text(run_dir, "agents/*/review_response.v*.md"),
-            human_notes=human_notes,
+            human_notes="\n\n".join([human_notes, discussion_requests]).strip(),
         )
     if stage == Stage.SYNTHESIS:
         return _template("synthesis.md").format(
@@ -61,6 +63,6 @@ def render_prompt(stage: Stage, agent_id: str, run_dir: Path) -> str:
             drafts=_all_text(run_dir, "agents/*/draft_response.v*.md"),
             reviews=_all_text(run_dir, "agents/*/review_response.v*.md"),
             revisions=_all_text(run_dir, "agents/*/revision_response.v*.md"),
-            human_notes=human_notes,
+            human_notes="\n\n".join([human_notes, discussion_requests]).strip(),
         )
     raise ValueError(f"Unsupported prompt stage: {stage}")

@@ -729,6 +729,14 @@ textarea {
   color: #b42318;
 }
 
+.runner-smoke-result[data-status="unconfigured"] strong {
+  color: #b42318;
+}
+
+.runner-smoke-result[data-status="waiting_input"] strong {
+  color: #b54708;
+}
+
 .runner-smoke-result span {
   overflow-wrap: anywhere;
 }
@@ -836,6 +844,36 @@ textarea {
   font-size: 14px;
 }
 
+.settings-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.settings-actions button {
+  min-height: 34px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.settings-actions .secondary-action {
+  border-color: #d7dee8;
+  background: #ffffff;
+  color: #182230;
+}
+
+.runner-capability-note {
+  color: #647184;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.agent-smoke-result small {
+  overflow-wrap: anywhere;
+  color: #566273;
+}
+
 @media (max-width: 960px) {
   main {
     padding: 16px;
@@ -871,10 +909,14 @@ textarea {
 }
 
 .workbench-v2 {
-  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+  min-height: 0;
   gap: 14px;
   padding: 14px 16px 16px;
   background: #f7f8fa;
+  overflow: hidden;
 }
 
 .workbench-v2 .app-header {
@@ -1059,7 +1101,8 @@ textarea {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(540px, 1fr) minmax(320px, 380px);
   gap: 0;
-  min-height: calc(100vh - 82px);
+  height: auto;
+  min-height: 0;
   align-items: stretch;
   border: 1px solid #dfe5ed;
   border-radius: 8px;
@@ -1073,6 +1116,7 @@ textarea {
   border-right: 1px solid #e4e8ef;
   background: #fbfcfe;
   padding: 14px;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -1164,12 +1208,27 @@ textarea {
   line-height: 1.35;
 }
 
+.workbench-v2 .run-list button small {
+  color: #647184;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.workbench-v2 .run-list button .run-card-title {
+  color: #162033;
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .run-workspace-v2 {
   display: grid;
   min-width: 0;
+  min-height: 0;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 0;
   background: #ffffff;
+  overflow: hidden;
 }
 
 .stage-progress-rail {
@@ -1319,6 +1378,7 @@ textarea {
 .conversation-stream {
   display: grid;
   min-height: 0;
+  overflow: hidden;
   grid-template-rows: minmax(0, 1fr) auto;
   background: #ffffff;
 }
@@ -1406,16 +1466,54 @@ textarea {
 }
 
 .conversation-message__content footer {
-  width: max-content;
   max-width: 100%;
-  border: 1px solid #e0e6ee;
+  overflow-wrap: anywhere;
+}
+
+.conversation-message__attachment {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.conversation-message__attachment button {
+  max-width: 100%;
+  border: 1px solid #dbe4ee;
   border-radius: 7px;
-  background: #fafbfc;
-  color: #4d5d72;
+  background: #f8fafc;
+  color: #2f4057;
   padding: 7px 9px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 850;
+  text-align: left;
   overflow-wrap: anywhere;
+}
+
+.conversation-message__attachment button:hover {
+  border-color: #b9c8dd;
+  background: #eef5ff;
+  color: #1d4ed8;
+}
+
+.conversation-message__preview {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 860px);
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid #dce5ef;
+  border-radius: 7px;
+  background: #fbfdff;
+  padding: 10px 12px;
+}
+
+.conversation-message__preview p {
+  margin: 0;
+  color: #273244;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 .conversation-composer {
@@ -1447,6 +1545,7 @@ textarea {
 
 .workbench-side-column {
   min-width: 0;
+  min-height: 0;
   border-left: 1px solid #e4e8ef;
   background: #fbfcfe;
   overflow: auto;
@@ -1657,8 +1756,14 @@ textarea {
 
 .advanced-workflow-tools,
 .debug-tools {
+  min-height: 0;
   border-top: 1px solid #e4e8ef;
   background: #fbfcfe;
+}
+
+.advanced-workflow-tools[open] {
+  max-height: min(520px, 48vh);
+  overflow: auto;
 }
 
 .advanced-workflow-tools summary,
@@ -1675,9 +1780,36 @@ textarea {
   margin: 0 14px 14px;
 }
 
+.final-change-request {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.final-change-request label {
+  display: grid;
+  gap: 6px;
+  color: #526071;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.final-change-request textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.final-change-request button {
+  justify-self: start;
+}
+
 @media (max-width: 1180px) {
   .workbench-v2 .workbench-layout {
     grid-template-columns: minmax(210px, 260px) minmax(480px, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 260px);
   }
 
   .workbench-side-column {
@@ -1697,6 +1829,9 @@ textarea {
 
 @media (max-width: 820px) {
   .workbench-v2 {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
     padding: 10px;
   }
 
@@ -1714,12 +1849,19 @@ textarea {
   .workbench-v2 .workbench-layout,
   .workbench-v2 .workbench-layout {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 96px) minmax(0, 1fr) minmax(0, 96px);
+    overflow: hidden;
   }
 
   .workbench-v2 .run-sidebar,
   .workbench-side-column {
     border-right: 0;
     border-left: 0;
+  }
+
+  .run-workspace-v2,
+  .conversation-stream {
+    overflow: hidden;
   }
 
   .stage-progress-rail {
@@ -1731,7 +1873,17 @@ textarea {
     display: none;
   }
 
-  .run-status-bar,
+  .run-status-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .run-status-bar p {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
   .right-execution-panel {
     grid-template-columns: 1fr;
   }

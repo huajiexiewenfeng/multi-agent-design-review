@@ -28,6 +28,7 @@ def test_state_moves_to_draft_after_clarified_requirement_ready(tmp_path: Path) 
         encoding="utf-8",
     )
     (run_dir / "input" / "human_answers.json").write_text('{"answers":{"q_001":"Local user"}}', encoding="utf-8")
+    (run_dir / "input" / "human_answers.md").write_text("# Human Answers\n\nLocal user\n", encoding="utf-8")
     (run_dir / "input" / "clarified_requirement.md").write_text("# Clarified\n", encoding="utf-8")
     (run_dir / "events.jsonl").write_text("", encoding="utf-8")
 

@@ -19,7 +19,8 @@ export function RightExecutionPanel({
   onSubmitHumanInput,
   onOpenFinalOutput,
   onCopyFinalOutput,
-  onDownloadFinalOutput
+  onDownloadFinalOutput,
+  onRequestChanges
 }: {
   agentQueue: AgentQueueItem[];
   humanActions: HumanActionItem[];
@@ -34,8 +35,10 @@ export function RightExecutionPanel({
   onOpenFinalOutput?: (output: FinalOutputItem) => void;
   onCopyFinalOutput?: (output: FinalOutputItem) => void;
   onDownloadFinalOutput?: (output: FinalOutputItem) => void;
+  onRequestChanges?: (content: string) => void;
 }) {
   const [humanResponses, setHumanResponses] = useState<Record<string, string>>({});
+  const [changeRequest, setChangeRequest] = useState("");
 
   function submitHumanInput(action: HumanActionItem) {
     const content = humanResponses[action.id]?.trim() ?? "";
@@ -44,6 +47,15 @@ export function RightExecutionPanel({
     }
     onSubmitHumanInput(action, content);
     setHumanResponses((current) => ({ ...current, [action.id]: "" }));
+  }
+
+  function submitChangeRequest() {
+    const content = changeRequest.trim();
+    if (!content || !onRequestChanges) {
+      return;
+    }
+    onRequestChanges(content);
+    setChangeRequest("");
   }
 
   return (
@@ -76,7 +88,7 @@ export function RightExecutionPanel({
           <article className="human-action-card" key={action.id}>
             <strong>{action.title}</strong>
             <p>{action.description}</p>
-            <small>{action.missingInput}</small>
+            <small>{action.inputLabel}</small>
             {onSubmitHumanInput ? (
               <label>
                 Human response
@@ -90,7 +102,7 @@ export function RightExecutionPanel({
                     }))
                   }
                   rows={4}
-                  placeholder="用自然语言写你的补充、答案或确认内容。"
+                  placeholder="Write your answer, decision, or confirmation in natural language."
                 />
               </label>
             ) : null}
@@ -164,6 +176,23 @@ export function RightExecutionPanel({
             ) : null}
           </article>
         ))}
+        {onRequestChanges ? (
+          <div className="final-change-request">
+            <label>
+              Request changes
+              <textarea
+                aria-label="Request changes"
+                value={changeRequest}
+                onChange={(event) => setChangeRequest(event.target.value)}
+                rows={3}
+                placeholder="Ask the agents to continue the discussion before finalizing."
+              />
+            </label>
+            <button type="button" disabled={!changeRequest.trim()} onClick={submitChangeRequest}>
+              Request changes
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="execution-section">
